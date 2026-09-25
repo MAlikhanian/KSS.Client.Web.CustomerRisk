@@ -72,6 +72,10 @@ export function CrossBrokerageDetailContent({ id }: { id: string }) {
   useEffect(() => {
     if (!caseFile || !brokerageId || auditPushed) return;
     if (brokerageId === caseFile.brokerageId) return; // owner — handled by the normal detail page
+    // Archived foreign cases render not-found below, so nothing is viewed and
+    // 'viewed case owned by X' would be a false entry. An ATTEMPT is currently
+    // recorded nowhere; recording one needs an audit action we do not have.
+    if (caseFile.isArchived) return;
     const actor = defaultActorName(brokerageId);
     pushAuditEntry({
       brokerageId,
@@ -94,10 +98,50 @@ export function CrossBrokerageDetailContent({ id }: { id: string }) {
     );
   }
 
+  // Decide NOTHING until the acting brokerage has resolved. Both guards below
+  // are ownership judgements, and until brokerageId lands ownership is UNKNOWN
+  // rather than false — so answering either way here is a guess:
+  //   guess "owner"     → an archived case is withheld from the brokerage that
+  //                       owns it, a false negative about their own record;
+  //   guess "not owner" → an archived foreign case paints for a commit or two,
+  //                       which is the disclosure this page exists to bound.
+  // Both were reachable in this file. Holding is the only answer that is not a
+  // guess, and useActingBrokerage settles within a commit or two on any browser
+  // that has brokerages at all.
+  if (!brokerageId) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          {t('errorNoActingBrokerage', { defaultValue: 'Pick an acting brokerage first.' })}
+        </CardContent>
+      </Card>
+    );
+  }
+
   // If the operator is actually the owner, send them to the full detail page.
   if (brokerageId === caseFile.brokerageId) {
     router.replace(`/cases/${caseFile.id}`);
     return null;
+  }
+
+  // Past this point ownership IS established: brokerageId is set and differs.
+  //
+  // Archived cases are deliberately withheld cross-brokerage — searchCasesByText
+  // excludes them, and each brokerage's archive page is its own. This closes the
+  // same door for a pasted or redirected URL, which is the only other way in.
+  // The guard lives here rather than only at /cases/[id] so it holds whatever
+  // the entry point is.
+  if (caseFile.isArchived) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          {t('caseWithheldCrossBrokerage', {
+            defaultValue:
+              'This case is archived and is not available outside the brokerage that owns it.',
+          })}
+        </CardContent>
+      </Card>
+    );
   }
 
   const isIndividual = caseFile.customerType === 'Individual';

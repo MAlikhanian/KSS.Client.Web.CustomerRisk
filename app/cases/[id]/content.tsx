@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { RiCheckboxCircleFill } from '@remixicon/react';
+import { RiCheckboxCircleFill, RiErrorWarningFill } from '@remixicon/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Toolbar,
@@ -38,12 +39,13 @@ import {
   archiveCase,
   defaultActorName,
   getBrokerage,
-  getCase,
+  getCaseForBrokerage,
   listOtherRisks,
   listRelatedPersons,
   pushAuditEntry,
   unarchiveCase,
 } from '@/lib/customer-risk/mock-store';
+import type { CaseAccess } from '@/lib/customer-risk/mock-store';
 import { formatDate, formatDateTime } from '@/lib/customer-risk/format';
 
 function showSuccess(msg: string) {
@@ -60,10 +62,26 @@ function showSuccess(msg: string) {
   );
 }
 
+function showError(msg: string) {
+  toast.custom(
+    () => (
+      <Alert variant="mono" icon="destructive">
+        <AlertIcon>
+          <RiErrorWarningFill />
+        </AlertIcon>
+        <AlertTitle>{msg}</AlertTitle>
+      </Alert>
+    ),
+    { position: 'top-center' },
+  );
+}
+
 export function CaseDetailContent({ id }: { id: string }) {
   const { t } = useTranslation('customer-risk');
   const { brokerageId, tick } = useActingBrokerage();
+  const router = useRouter();
 
+  const [access, setAccess] = useState<CaseAccess['status'] | null>(null);
   const [caseFile, setCaseFile] = useState<CrsRiskCaseFile | null>(null);
   const [relatedPersons, setRelatedPersons] = useState<CrsRelatedPerson[]>([]);
   const [risks, setRisks] = useState<RiskEntry[]>([]);
@@ -79,7 +97,27 @@ export function CaseDetailContent({ id }: { id: string }) {
   const [brokerageName, setBrokerageName] = useState('—');
 
   const refresh = useCallback(() => {
-    const c = getCase(id);
+    // Scoped read: another brokerage's case is never returned here, so it never
+    // reaches component state. brokerageId is null on the very first paint —
+    // useActingBrokerage sets it in its own mount effect — so hold rather than
+    // read unscoped.
+    //
+    // WHAT RE-RUNS THIS when brokerageId arrives: `brokerageId` is in this
+    // useCallback's dependency list, so `refresh`'s identity changes and the
+    // [refresh, tick] effect below fires again. It is NOT `tick` — that is only
+    // incremented by the acting-changed event handler, so it stays 0 for a whole
+    // visit unless the operator touches the brokerage picker. Do not remove
+    // `brokerageId` from the deps as redundant: the closure would capture null
+    // for the lifetime of the page and every owner would see "No data found."
+    // on their own case.
+    if (!brokerageId) {
+      setAccess(null);
+      setCaseFile(null);
+      return;
+    }
+    const result = getCaseForBrokerage(id, brokerageId);
+    setAccess(result.status);
+    const c = result.status === 'ok' ? result.caseFile : null;
     setCaseFile(c);
     if (c) {
       setRelatedPersons(listRelatedPersons(c.id));
@@ -106,11 +144,62 @@ export function CaseDetailContent({ id }: { id: string }) {
       const b = getBrokerage(c.brokerageId);
       setBrokerageName(b?.nameFa ?? '—');
     }
-  }, [id]);
+  }, [id, brokerageId]);
 
   useEffect(() => {
     refresh();
   }, [refresh, tick]);
+
+  // A case owned by another brokerage belongs on /search/[id]: that is the
+  // cross-brokerage view, it shows less, and it writes a ViewOtherBrokerageCase
+  // audit entry. Redirecting from an effect rather than during render — the
+  // guard at search/[id] does it in render, which is a side effect in render
+  // and should not be copied.
+  //
+  // NOT OBSERVED IN A BROWSER. Predicted, not verified — to reproduce, open
+  //   /customer-risk/cases/<id of a case whose brokerageId is NOT the acting
+  //   brokerage>
+  // with 'customer-risk:acting-brokerage' set to some other brokerage, and watch
+  // what paints before the redirect lands. Predicted: nothing of that case, at
+  // any point. getCaseForBrokerage never returns a foreign record, so unlike a
+  // render-time ownership test there is nothing in `caseFile` to paint — the
+  // first render already takes the `return null` below. The weaker prediction,
+  // that it paints once and is then replaced, would apply to a guard placed
+  // after an unscoped getCase(); that is not what this does.
+  // Also unverified: that the redirect target renders. Note this is NOT because
+  // /search/[id] is unreachable — the search results table has always linked to
+  // it for non-own rows; that link was broken by the doubled basePath and is
+  // repaired by the same change as this. So there is a cheap way to exercise
+  // this path: search, then open a row belonging to another brokerage.
+  useEffect(() => {
+    if (access === 'foreign') router.replace(`/search/${id}`);
+  }, [access, id, router]);
+
+  if (access === 'foreign') return null;
+
+  // No acting brokerage, so there is no scope to read with. This is NOT the same
+  // as 'missing' — there may well be a case at this id; we cannot say. "No data
+  // found." would therefore be a lie, and rendering nothing was worse: silent,
+  // and permanent rather than transient whenever listBrokerages() comes back
+  // empty, because acting-brokerage-picker.tsx:36 then takes neither branch, so
+  // no key is written and no acting-changed event is ever dispatched.
+  //
+  // On a cold browser this can show for a frame before the picker seeds the key
+  // and dispatches. That is a briefly-visible true statement, not a wrong one.
+  if (!brokerageId) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          {t('errorNoActingBrokerage', { defaultValue: 'Pick an acting brokerage first.' })}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Scope exists but refresh() has not run for it yet — one frame. Render
+  // nothing rather than flash "No data found." at an owner about to be shown
+  // their own case.
+  if (access === null) return null;
 
   if (!caseFile) {
     return (
@@ -122,6 +211,9 @@ export function CaseDetailContent({ id }: { id: string }) {
     );
   }
 
+  // Always true now: the scoped read above only ever yields this brokerage's
+  // case. Kept as defence in depth for the archive/unarchive guards below. The
+  // "Owning brokerage" warning badge it also gates has become unreachable.
   const ownsCase = brokerageId === caseFile.brokerageId;
   const canEdit = ownsCase && !caseFile.isArchived;
   const isIndividual = customerType === 'Individual';
@@ -139,7 +231,17 @@ export function CaseDetailContent({ id }: { id: string }) {
     if (!ownsCase) return;
     if (!window.confirm(t('confirmArchive', { defaultValue: 'Archive this case?' }))) return;
     const actor = defaultActorName(caseFile.brokerageId);
-    archiveCase(caseFile.id, actor);
+    // Null means the write did not land. Reporting success here and then calling
+    // refresh() painted the case as still Active in the same frame as a "Case
+    // archived." toast.
+    if (!archiveCase(caseFile.id, actor)) {
+      showError(
+        t('toastChangeNotSaved', {
+          defaultValue: 'The change could not be saved in this browser.',
+        }),
+      );
+      return;
+    }
     pushAuditEntry({
       brokerageId: caseFile.brokerageId,
       userName: actor,
@@ -155,7 +257,14 @@ export function CaseDetailContent({ id }: { id: string }) {
     if (!ownsCase) return;
     if (!window.confirm(t('confirmUnarchive', { defaultValue: 'Restore from archive?' }))) return;
     const actor = defaultActorName(caseFile.brokerageId);
-    unarchiveCase(caseFile.id, actor);
+    if (!unarchiveCase(caseFile.id, actor)) {
+      showError(
+        t('toastChangeNotSaved', {
+          defaultValue: 'The change could not be saved in this browser.',
+        }),
+      );
+      return;
+    }
     pushAuditEntry({
       brokerageId: caseFile.brokerageId,
       userName: actor,

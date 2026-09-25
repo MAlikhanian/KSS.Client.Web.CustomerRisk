@@ -13,8 +13,8 @@
  */
 
 /** LanguageId 12 = Persian, 10 = English (KSS_Common.dbo.Language). */
-const PERSIAN_LANGUAGE_ID = 12;
-const ENGLISH_LANGUAGE_ID = 10;
+export const PERSIAN_LANGUAGE_ID = 12;
+export const ENGLISH_LANGUAGE_ID = 10;
 
 export type PersonLinkStatus =
   | 'linked'      // matched an existing Person row
@@ -34,11 +34,25 @@ export interface PersonLinkInput {
   fatherName?: string;
   /** ISO date string, as held by the CRS form. */
   dateOfBirth?: string;
+  /**
+   * The sex the operator chose. Declared `number | undefined` rather than
+   * optional on purpose: the property must be PASSED, so a caller cannot
+   * quietly leave it out, but it may be undefined when the operator could not
+   * be offered the choice. A create is then refused rather than defaulted —
+   * see linkOrCreatePerson.
+   */
+  sexId: number | undefined;
 }
 
 interface SexTranslationRow {
   sexId: number;
   languageId: number;
+  name: string;
+}
+
+/** One selectable sex, already narrowed to the caller's language. */
+export interface SexOption {
+  sexId: number;
   name: string;
 }
 
@@ -48,28 +62,48 @@ interface PersonListRow {
 }
 
 /**
- * Resolve the `Sex` row id for male.
+ * The sexes an operator may choose from, in one language.
  *
- * `SexTranslationDto` carries no `Code`, so the id cannot be matched on the
- * stable code from here — it is matched on the ENGLISH translation instead,
- * which is written by the same seed block that sets `Code = 'Male'` and so
- * cannot drift away from it independently.
+ * This replaces a resolveMaleSexId() that picked Male for every customer
+ * without asking. The form had no sex field at all, so every Individual
+ * customer was written to Person with a sex nobody supplied — and when the
+ * lookup failed the field was omitted instead, which lands on
+ * CreatePersonWithTranslationDto's `SexId = 1` and asserts one anyway.
  *
- * Returns undefined when the lookup fails; the caller then omits `sexId` and
- * lets Person's own DTO default apply.
+ * That default is Male in every database we have, but note what that rests on:
+ * Sex.Id is `TINYINT IDENTITY(1,1)` and the seed MERGEs from
+ * `(VALUES ('Male'),('Female'))` with no explicit id, so Male = 1 follows from
+ * insert order, not from anything the schema states. Which value it is does not
+ * actually matter to the defect — the point is that it is a value the operator
+ * never supplied. The fix is a field with no preselected answer, so this
+ * returns the options rather than a choice.
+ *
+ * Returns [] on any failure — including a reachable service that answered with
+ * nothing, which is indistinguishable here: the reference route fans out its
+ * lookups under Promise.allSettled and maps a rejected one to an empty array
+ * with HTTP 200, so `res.ok` is true either way. Callers must treat [] as
+ * "cannot ask", never as "no options exist".
+ *
+ * The timeout is load-bearing, not defensive tidiness. A caller has to be able
+ * to distinguish "Person said nothing" from "Person has not answered yet", and
+ * it can only do that if the second state is guaranteed to END. Without a
+ * ceiling a hung request stays unsettled forever, and any UI that waits for a
+ * settled answer waits forever with it. Ten seconds is generous for this route
+ * even though it fans out 23 upstream lookups.
  */
-export async function resolveMaleSexId(): Promise<number | undefined> {
+export async function listSexOptions(languageId: number): Promise<SexOption[]> {
   try {
-    const res = await fetch('/api/person/reference');
-    if (!res.ok) return undefined;
+    const res = await fetch('/api/person/reference', {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
     const json = await res.json();
     const rows: SexTranslationRow[] = json?.sexTranslations ?? [];
-    const male = rows.find(
-      (r) => r.languageId === ENGLISH_LANGUAGE_ID && r.name?.trim().toLowerCase() === 'male',
-    );
-    return male?.sexId;
+    return rows
+      .filter((r) => r.languageId === languageId && !!r.name?.trim())
+      .map((r) => ({ sexId: r.sexId, name: r.name.trim() }));
   } catch {
-    return undefined;
+    return [];
   }
 }
 
@@ -102,7 +136,15 @@ export async function linkOrCreatePerson(input: PersonLinkInput): Promise<Person
   const existing = await findPersonByNationalId(input.nationalId);
   if (existing) return { personId: existing, status: 'linked' };
 
-  const sexId = await resolveMaleSexId();
+  // Refuse to CREATE without a sex the operator actually chose. Omitting the
+  // field does not mean "unset" at the other end — CreatePersonWithTranslationDto
+  // declares `public byte SexId { get; set; } = 1`, so an absent value becomes a
+  // real, wrong assertion about a real person, indistinguishable afterwards from
+  // one somebody entered. Failing the link is recoverable; that is not.
+  //
+  // Linking above is unaffected: matching an existing person needs no sex, and
+  // this must not overwrite one already recorded.
+  if (!input.sexId) return { status: 'failed' };
 
   try {
     // Same payload shape the canonical person/create page posts.
@@ -110,7 +152,7 @@ export async function linkOrCreatePerson(input: PersonLinkInput): Promise<Person
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...(sexId ? { sexId } : {}),
+        sexId: input.sexId,
         preferredLanguageId: PERSIAN_LANGUAGE_ID,
         nationalId: input.nationalId,
         dateOfBirth: input.dateOfBirth || undefined,

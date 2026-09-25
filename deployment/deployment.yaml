@@ -4,11 +4,30 @@
 #  Modelled on Mpf/deployment/deployment.yaml, which is itself modelled on the
 #  Shell's. Differences from the Shell, each deliberate:
 #
-#   1. NO INGRESS. This zone has no public entrypoint. The Shell is the only
-#      thing the internet talks to; it rewrites /customer-risk/* here over cluster DNS.
-#      Giving the zone its own Ingress would expose it directly — and this app
-#      has no middleware.ts, so an unauthenticated visitor would get a
-#      rendering page instead of a redirect to sign-in.
+#   1. NO INGRESS. This zone has no public entrypoint, and that is a security property
+#      rather than a deployment preference. The Shell is the only thing the internet talks
+#      to; it rewrites /customer-risk/* here over cluster DNS, and at that rewrite it
+#      OVERWRITES x-kss-host from the real Host header (Shell/middleware.ts uses .set(), so
+#      a client-supplied x-kss-host is destroyed). This zone reads x-kss-host and nothing
+#      else, with no fallback, and resolves branding and an optional bound companyId from
+#      it (app/layout.tsx, lib/tenants.ts).
+#
+#      Give this zone its own Ingress and nothing overwrites that header any more: a value
+#      the client controls becomes the input to server-side tenant resolution. The
+#      NetworkPolicy at the bottom of this file — no Ingress object, ingress only from
+#      namespaceSelector name=kss-client-web — is what keeps that from being possible.
+#
+#      NOT claimed here: that an Ingress alone would expose another tenant's data.
+#      lib/tenants.ts states the host-to-company binding is not itself a security boundary,
+#      because the x-company-id cookie is user-editable regardless and the Person service is
+#      where that check has to live.
+#
+#      Measured 2026-09-08, and re-measurable in one command: of the 13 zone manifests under
+#      KSS.Client\Web (all but the Shell), NONE defines a `kind: Ingress` and each carries a
+#      NetworkPolicy. Control for that negative: the Shell's own manifest has 2 Ingress
+#      blocks, so the search does fire. Re-check rather than trust the figure — it counts a
+#      set that grows, it was "twelve" until a thirteenth zone was added, and nothing here
+#      notices when it changes.
 #
 #   2. PROBES HIT /customer-risk/api/health — a route this app owns, with no database and
 #      no session. NOT the Shell's /api/health, which queries Prisma: a probe
@@ -20,7 +39,12 @@
 #  ⚠ THIS APP'S DATA IS BROWSER localStorage (lib/customer-risk/mock-store.ts).
 #  There is no KSS.Service.CustomerRisk. Cases live only in each user's browser, and
 #  they survive only while this domain is served from the SAME ORIGIN. Moving it to a
-#  different hostname makes every user's cases invisible. SEED_VERSION must stay 2.
+#  different hostname makes every user's cases invisible.
+#
+#  There is no SEED_VERSION any more. It used to version-gate the sample data, and a bump
+#  replaced whole storage keys — every case in the browser, not only the seeded ones. The
+#  gate is gone and each store is seeded only when its own key is absent, so there is no
+#  longer an edit that wipes users' cases. Do not reintroduce a version gate here.
 #
 #  ---------------------------------------------------------------------------
 #  THREE THINGS ARE NOT IN THIS FILE, in order of how quietly each one fails:
@@ -149,6 +173,20 @@ spec:
         - name: NEXT_PUBLIC_APP_NAME
           value: "KSS_Client_Web_customer_risk"
 
+        # ── Tenant branding ─────────────────────────────────────────────────
+        # Same ConfigMap pattern as the Shell's. Resolved per request in
+        # app/layout.tsx against x-kss-host, which the Shell's middleware stamps
+        # from the real Host header. Value is generated from the SHELL manifest
+        # by _Kit tooling -- all 13 carry a byte-identical object, so a tenant
+        # cannot be branded on Shell pages and unbranded inside a zone.
+        # configMapKeyRef is frozen at container start: changing the ConfigMap
+        # needs a rollout restart, not just an apply.
+        - name: TENANTS
+          valueFrom:
+            configMapKeyRef:
+              name: kss-client-web-customer-risk-config
+              key: tenants
+
         # ── Backend services ────────────────────────────────────────────────
         # Backend services this app calls. Values mirror the Shell's own ConfigMap
         # so the two cannot drift.
@@ -248,6 +286,7 @@ metadata:
   namespace: kss-client-web-customer-risk
 data:
   auth-api-base-url: "https://auth.api.sebaoffice.ir"
+  tenants: '{"erp.seba.ir":{"name":"SEBA","logo":"/media/app/default-logo.svg","logoDark":"/media/app/default-logo-dark.svg","logoMini":"/media/app/mini-logo.svg","favicon":"/favicon.ico","banner":"/media/images/2600x1600/1.png","bannerDark":"/media/images/2600x1600/1-dark.png","companyId":"019f317a-12ba-764f-b19b-e064e36b4be8","footer":{"brand":{"label":"SEBA","href":"https://seba.ir"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"Support","fa":"پشتیبانی","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"License","fa":"مجوز","href":""}]}},"members.sebaoffice.ir":{"name":"SEBA","logo":"/media/app/default-logo.svg","logoDark":"/media/app/default-logo-dark.svg","logoMini":"/media/app/mini-logo.svg","favicon":"/favicon.ico","banner":"/media/images/2600x1600/1.png","bannerDark":"/media/images/2600x1600/1-dark.png","companyId":"019f317a-12ba-764f-b19b-e064e36b4be8","footer":{"brand":{"label":"SEBA","href":"https://seba.ir"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"Support","fa":"پشتیبانی","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"License","fa":"مجوز","href":""}]}},"nerp.sajoffice.ir":{"name":"SAJ","logo":"/media/tenants/saj/logo.png","logoDark":"/media/tenants/saj/logo.png","logoMini":"/media/tenants/saj/logo.png","favicon":"/media/tenants/saj/favicon.png","banner":"/media/tenants/saj/banner.jpg","bannerDark":"/media/tenants/saj/banner.jpg","companyId":"019f0e6c-9fbc-78cf-9202-fa932a9878f7","footer":{"brand":{"label":"SAJ","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"erp.mpfoffice.ir":{"name":"MPF","logo":"/media/tenants/mpf/logo.svg","logoDark":"/media/tenants/mpf/logo-dark.svg","logoMini":"/media/tenants/mpf/logo-mini.svg","favicon":"/media/tenants/mpf/favicon.svg","banner":"/media/tenants/mpf/banner.svg","bannerDark":"/media/tenants/mpf/banner-dark.svg","companyId":"019f7a3e-1d43-7bcb-a7f3-eb97572e2e02","footer":{"brand":{"label":"MPF","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"spmoffice.ir":{"name":"SPM","logo":"/media/tenants/spm/logo.svg","logoDark":"/media/tenants/spm/logo-dark.svg","logoMini":"/media/tenants/spm/logo-mini.svg","favicon":"/media/tenants/spm/favicon.svg","banner":"/media/tenants/spm/banner.svg","bannerDark":"/media/tenants/spm/banner-dark.svg","companyId":"01a04744-68ae-7aef-b9d0-b5fb31d7a80c","footer":{"brand":{"label":"SPM","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"mkoffice.ir":{"name":"MK","footer":{"brand":{"label":"مشیران کاریز","href":"https://moshirankariz.com"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]},"logo":"/media/tenants/mk/logo.png","logoDark":"/media/tenants/mk/logo.png","logoMini":"/media/tenants/mk/logo.png","favicon":"/media/tenants/mk/favicon.ico","banner":"/media/tenants/mk/banner.jpg","bannerDark":"/media/tenants/mk/banner.jpg","companyId":"01a07fb0-e2e7-7822-b14b-3a70278009ef"}}'
 ---
 # ⚠ `nextauth-secret` IS NOT IN THIS FILE, AND MUST NOT BE ADDED TO IT.
 #   1. An empty value would let the pod START and then 500 every route while

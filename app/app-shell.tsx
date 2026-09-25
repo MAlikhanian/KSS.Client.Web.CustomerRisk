@@ -6,6 +6,7 @@ import { ScreenLoader } from '@/components/common/screen-loader';
 import { TokenExpiryGuard } from '@/components/common/token-expiry-guard';
 import { CurrentCompanyProvider } from '@/providers/current-company-provider';
 import { Demo1Layout } from '@/app/components/layouts/demo1/layout';
+import { MockDataBanner } from '@/app/components/mock-data-banner';
 
 /**
  * Session guard + chrome for a domain app.
@@ -55,10 +56,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <ScreenLoader />;
   }
 
+  // MockDataBanner is mounted HERE, above children, because this is the only
+  // branch of this component that ever renders content — every other path above
+  // returns <ScreenLoader /> or null. One mount therefore covers every screen in
+  // the zone, including routes that do not exist yet. Do not move it onto the
+  // pages: this zone's records are generated rows in localStorage, and a screen
+  // that showed them unmarked would read as the real one.
   return session ? (
     <CurrentCompanyProvider>
       <TokenExpiryGuard />
-      <Demo1Layout>{children}</Demo1Layout>
+      <Demo1Layout>
+        <MockDataBanner />
+        {children}
+      </Demo1Layout>
     </CurrentCompanyProvider>
   ) : null;
 }

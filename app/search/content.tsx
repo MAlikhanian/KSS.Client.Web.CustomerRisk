@@ -180,13 +180,12 @@ export function SearchContent() {
                         </TableCell>
                         <TableCell className="text-center">
                           <Button asChild variant="ghost" mode="icon" size="sm">
-                            <Link
-                              href={
-                                isOwn
-                                  ? `/customer-risk/cases/${c.id}`
-                                  : `/customer-risk/search/${c.id}`
-                              }
-                            >
+                            {/* No '/customer-risk' prefix: next/link prepends basePath
+                                itself (next.config.mjs), so a prefixed href resolves to
+                                /customer-risk/customer-risk/... and 404s. The menu paths
+                                in page-navbar and menu.config DO carry the prefix — they
+                                go through ZoneLink, which strips it again. */}
+                            <Link href={isOwn ? `/cases/${c.id}` : `/search/${c.id}`}>
                               <Eye className="size-4" />
                             </Link>
                           </Button>

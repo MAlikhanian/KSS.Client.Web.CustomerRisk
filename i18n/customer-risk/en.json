@@ -242,5 +242,14 @@
   "personLinked": "Linked to an existing person record.",
   "personCreated": "Customer saved to the Person service.",
   "personDuplicateOutOfScope": "This national ID already exists in the system but is not visible in your company. The case was filed without a person link.",
-  "personLinkFailed": "Could not reach the Person service. The case was filed without a person link."
+  "personLinkFailed": "Could not reach the Person service. The case was filed without a person link.",
+  "toastCaseSaveFailed": "The case could not be saved in this browser.",
+  "customerSex": "Sex",
+  "customerSexUnavailable": "Unavailable — the case will be filed without a person link",
+  "validationCustomerSex": "Select the customer's sex.",
+  "validationSexOptionsPending": "Still loading customer details — try again in a moment.",
+  "caseWithheldCrossBrokerage": "This case is archived and is not available outside the brokerage that owns it.",
+  "toastChangeNotSaved": "The change could not be saved in this browser.",
+  "toastCasePartiallySaved": "The case was saved, but its related persons or other risks could not be stored.",
+  "mockDataBanner": "Sample data — not from a real customer."
 }

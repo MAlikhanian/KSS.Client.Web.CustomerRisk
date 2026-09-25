@@ -37,12 +37,13 @@ import {
 import { useTranslation } from '@/hooks/useTranslation';
 import { useActingBrokerage } from '../components/acting-brokerage-picker';
 import { CaseStatusBadge } from '../components/case-status-badge';
-import type { CrsRiskCaseFile } from '@/lib/customer-risk/types';
+import type { CrsRelatedPerson, CrsRiskCaseFile } from '@/lib/customer-risk/types';
 import {
   archiveCase,
   caseMatchesQuery,
   defaultActorName,
   listCasesByBrokerage,
+  listRelatedPersonsByCase,
   pushAuditEntry,
 } from '@/lib/customer-risk/mock-store';
 import { formatDate } from '@/lib/customer-risk/format';
@@ -68,18 +69,25 @@ export function CasesListContent() {
   const [cases, setCases] = useState<CrsRiskCaseFile[]>([]);
   const [query, setQuery] = useState('');
   const [archiveTarget, setArchiveTarget] = useState<CrsRiskCaseFile | null>(null);
+  // Read once here, not once per case inside the filter below — see
+  // listRelatedPersonsByCase. Loaded in the SAME effect as `cases` so both land
+  // in one render; a second effect keyed on [cases] would cost an extra render
+  // and recompute `filtered` and `sorted` twice on every load.
+  const [relatedByCase, setRelatedByCase] = useState<Map<string, CrsRelatedPerson[]>>(new Map());
 
   useEffect(() => {
     if (!brokerageId) {
       setCases([]);
+      setRelatedByCase(new Map());
       return;
     }
     setCases(listCasesByBrokerage(brokerageId));
+    setRelatedByCase(listRelatedPersonsByCase());
   }, [brokerageId, tick]);
 
   const filtered = useMemo(
-    () => cases.filter((c) => !c.isArchived && caseMatchesQuery(c, query)),
-    [cases, query],
+    () => cases.filter((c) => !c.isArchived && caseMatchesQuery(c, query, relatedByCase)),
+    [cases, query, relatedByCase],
   );
 
   const sorted = useMemo(

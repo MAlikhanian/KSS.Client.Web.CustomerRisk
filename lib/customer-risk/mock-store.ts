@@ -1,7 +1,53 @@
 /**
  * Browser-localStorage backed mock data store for the Customer Risk Record
- * System (CRS). Same shape conventions as cash-advance: every read/write
- * function will swap 1:1 for fetch() calls once a backend lands.
+ * System (CRS). Cases exist only in the visitor's browser: nothing here is
+ * sent anywhere, and clearing site data destroys it.
+ *
+ * THE SWAP IS NOT 1:1. This header used to promise that every function would
+ * exchange one-for-one for a fetch() call. It will not, and the reason is worth
+ * knowing before anyone plans that work:
+ *
+ *   At the STORE, the function set does not map onto an endpoint set. A store
+ *   grows one function per question a page asks; an API answers several of them
+ *   per route. Expect a smaller number of endpoints than there are functions
+ *   here, which means deciding what each one merges into — not renaming.
+ *
+ *   At the CALL SITES, every export here is SYNCHRONOUS and returns a value.
+ *   An http body returns a Promise, so each of the twelve importing files
+ *   changes, and two of them filter inside a useMemo, which cannot await. Those
+ *   two need restructuring, not an added keyword.
+ *
+ * THE REAL COST IS THE STATE NOBODY HAS WRITTEN YET. No call to THIS STORE, in
+ * any of the twelve importing files, has a loading state or an error branch —
+ * because a synchronous call has nothing to wait for and nothing to reject.
+ * Every one of them needs both. (Scoped to store calls deliberately: new-case
+ * does have an isLoading, for its Person reference query, which is not a store
+ * read. The claim is about this module's call sites, not about the files.)
+ *
+ * @tanstack/react-query is already a dependency and QueryClientProvider is
+ * already mounted (app/layout.tsx), so the machinery is here. Do not read the
+ * zone's existing hooks as a worked example, though: hooks/use-brokerages.ts,
+ * use-companies.ts and use-investment-funds.ts have ZERO call sites anywhere in
+ * this zone — they are kit-landed and dead. The one live pre-existing use is a
+ * component, app/components/partials/topbar/user-dropdown-menu.tsx.
+ *
+ * KEEP THE REFRESH CHANNEL. setActingBrokerageId writes localStorage and then
+ * dispatches a `customer-risk:acting-changed` CustomEvent; useActingBrokerage
+ * subscribes and bumps a `tick` that consumers depend on. That hand-rolled
+ * invalidation is what makes the brokerage picker refresh every list. A
+ * migration has to replace it with query invalidation or the picker goes quiet
+ * without erroring.
+ *
+ * TWO PRECEDENTS IN THE ESTATE, both worth reading before starting:
+ *   Dms/lib/dms/mock-store.ts — every export async over a single read/write
+ *   seam, so the swap is one line per function and no call site moves.
+ *   Members/lib/members-reports/api-client.ts — a synchronous mock store hidden
+ *   behind an ASYNC facade: three async methods wrapping the sync calls in
+ *   settle(), the real http path already written behind a USE_MOCK env flag,
+ *   and its consumer already carrying error state and a catch. It still
+ *   defaults to the mock — but that is a fact about an env var, not about swap
+ *   cost, and it is the closest thing in the estate to the problem this module
+ *   has. An earlier version of this header dismissed it; that was wrong.
  */
 
 import type {
@@ -12,7 +58,6 @@ import type {
   CrsOtherRisk,
   CrsRelatedPerson,
   CrsRiskCaseFile,
-  CrsSearchFilter,
   AuditAction,
   BrokerageUserRole,
   RelationType,
@@ -30,10 +75,6 @@ const KEY_OTHER_RISKS = 'customer-risk:other-risks';
 const KEY_AUDIT = 'customer-risk:audit-log';
 const KEY_CASE_COUNTERS = 'customer-risk:case-counters';
 const KEY_ACTING_BROKERAGE = 'customer-risk:acting-brokerage';
-const KEY_SEED_VERSION = 'customer-risk:seed-version';
-
-/** Bump to force already-seeded browsers to refresh the sample case data. */
-const SEED_VERSION = 2;
 
 // ─── Seeds ──────────────────────────────────────────────────────────────────
 
@@ -328,35 +369,70 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
-function write<T>(key: string, value: T): void {
-  if (!isBrowser()) return;
+/**
+ * Persist a value. Returns false when the write did NOT land.
+ *
+ * The common cause is the localStorage quota, and it matters here because this
+ * store is the only copy of a case — there is no server to have accepted it. A
+ * caller that ignores the result will report success for data that was never
+ * written.
+ *
+ * WHO PROPAGATES IT, so this docstring is not read as a claim about all of them:
+ *   createCase → null · updateCase (and so archiveCase / unarchiveCase) → null ·
+ *   saveRelatedPersons, saveOtherRisks → false.
+ * NOT PROPAGATED — the complete list, so this is not read as covering more than
+ * it does: pushAuditEntry, the user writes (upsertUser, deleteUser, lockUser,
+ * unlockUser), the IP writes (upsertIp, deleteIp), the seeding writes in
+ * ensureSeed, and nextCaseCounter.
+ *
+ * A dropped audit entry is a real gap, but it has no toast to contradict and no
+ * return value a caller acts on; giving it one is a change to the audit
+ * contract, not a bug fix. nextCaseCounter is the one with teeth: if its write
+ * is dropped the counter does not advance, so the NEXT case reuses the same
+ * number. Both are known and neither is fixed here.
+ *
+ * If you add a write on a path that shows the operator a success message,
+ * propagate it.
+ */
+function write<T>(key: string, value: T): boolean {
+  if (!isBrowser()) return false;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    /* ignore quota errors */
+    return false;
   }
 }
 
-/** One-time seed: populate stores when empty. Idempotent. */
+/**
+ * Seed each store only when its own key is ABSENT. Nothing here overwrites.
+ *
+ * Every write is gated on its own key, and that is load-bearing rather than
+ * tidy. Operator-created rows live in these same arrays under these same keys
+ * (createCase pushes into KEY_CASES), nothing marks a row as seed or operator
+ * data, and this zone has no export and no backup — cases exist only in the
+ * browser. So an ungated write here destroys real work with no way back.
+ *
+ * There used to be a SEED_VERSION gate on the four case keys, with a docstring
+ * inviting you to bump it to refresh the samples. Bumping it replaced whole
+ * keys, which meant every case in that browser, not only the seeded ones. It is
+ * gone rather than documented: if you are adding a store, gate it like these.
+ */
 function ensureSeed(): void {
   if (!isBrowser()) return;
   if (!window.localStorage.getItem(KEY_BROKERAGES)) write(KEY_BROKERAGES, SEED_BROKERAGES);
   if (!window.localStorage.getItem(KEY_USERS)) write(KEY_USERS, SEED_USERS);
   if (!window.localStorage.getItem(KEY_IPS)) write(KEY_IPS, SEED_IPS);
   if (!window.localStorage.getItem(KEY_AUDIT)) write(KEY_AUDIT, SEED_AUDIT);
-
-  // Sample case data is version-gated: bumping SEED_VERSION wipes the old
-  // sample cases/related/risks and reinstalls the current generated set.
-  const seeded = Number(window.localStorage.getItem(KEY_SEED_VERSION) ?? '0');
-  if (seeded < SEED_VERSION) {
-    write(KEY_CASES, SEED_CASES);
-    write(KEY_RELATED, SEED_RELATED);
-    write(KEY_OTHER_RISKS, SEED_OTHER_RISKS);
+  if (!window.localStorage.getItem(KEY_CASES)) write(KEY_CASES, SEED_CASES);
+  if (!window.localStorage.getItem(KEY_RELATED)) write(KEY_RELATED, SEED_RELATED);
+  if (!window.localStorage.getItem(KEY_OTHER_RISKS)) write(KEY_OTHER_RISKS, SEED_OTHER_RISKS);
+  if (!window.localStorage.getItem(KEY_CASE_COUNTERS)) {
+    // Matches SEED_CASES, which generates 20 cases per brokerage.
     const ym = isoYearMonth();
     const counters: Record<string, number> = {};
     for (const brk of SEED_BROKERAGES) counters[`${ym}__${brk.id}`] = 20;
     write(KEY_CASE_COUNTERS, counters);
-    window.localStorage.setItem(KEY_SEED_VERSION, String(SEED_VERSION));
   }
 }
 
@@ -499,8 +575,45 @@ export function listCasesByBrokerage(brokerageId: string): CrsRiskCaseFile[] {
   return listCases().filter((c) => c.brokerageId === brokerageId);
 }
 
+/**
+ * Unscoped read by id — returns any brokerage's case, archived included.
+ *
+ * Correct for /search/[id], which exists to show another brokerage's case and
+ * writes a ViewOtherBrokerageCase audit entry when it does. Everywhere else
+ * use getCaseForBrokerage, so a foreign record is never loaded at all.
+ */
 export function getCase(id: string): CrsRiskCaseFile | null {
   return listCases().find((c) => c.id === id) ?? null;
+}
+
+/** Outcome of a brokerage-scoped case read. */
+export type CaseAccess =
+  | { status: 'ok'; caseFile: CrsRiskCaseFile }
+  | { status: 'foreign'; ownerBrokerageId: string }
+  | { status: 'missing' };
+
+/**
+ * Read by id, scoped to one brokerage. A case belonging to another brokerage
+ * is never returned to the caller — only the fact that it exists and who owns
+ * it, which is what a caller needs to redirect to the audited /search/[id].
+ *
+ * Two things here are deliberate:
+ *
+ * A render-time ownership check is NOT equivalent to this. It runs after the
+ * record is already in component state, so a foreign case has been read into
+ * the client and merely not painted.
+ *
+ * 'foreign' and 'missing' are separate rather than both null, because a caller
+ * that has to tell them apart from a null will reach for getCase() to do it —
+ * which is exactly the unscoped read this exists to replace.
+ */
+export function getCaseForBrokerage(id: string, brokerageId: string): CaseAccess {
+  const found = getCase(id);
+  if (!found) return { status: 'missing' };
+  if (found.brokerageId !== brokerageId) {
+    return { status: 'foreign', ownerBrokerageId: found.brokerageId };
+  }
+  return { status: 'ok', caseFile: found };
 }
 
 /** Allocate the next per-brokerage, per-month case counter. */
@@ -533,7 +646,7 @@ export function createCase(args: {
   hasAnyOtherRisks: boolean;
   additionalNotes?: string;
   createdByUserName: string;
-}): CrsRiskCaseFile {
+}): CrsRiskCaseFile | null {
   const brokerage = getBrokerage(args.brokerageId);
   const code = brokerage?.code ?? 'XXXX';
   const ym = isoYearMonth();
@@ -563,7 +676,17 @@ export function createCase(args: {
     updatedAt: now,
   };
   all.push(created);
-  write(KEY_CASES, all);
+  // Null, not a thrown error: Person is already treated as a soft dependency on
+  // this path, so the caller decides what to tell the operator. What it must
+  // not do is report a saved case that is not stored anywhere.
+  //
+  // Known and accepted: nextCaseCounter above has already incremented and
+  // persisted the counter, and this failure does not roll it back. The next
+  // case that does save skips a number. Rolling back would mean a second write
+  // that can fail the same way, on the path where writes are already failing —
+  // a gap in the sequence is the cheaper wrong answer. Case numbers are
+  // operator-facing, so a gap is visible; it does not mean a case was deleted.
+  if (!write(KEY_CASES, all)) return null;
   return created;
 }
 
@@ -585,7 +708,11 @@ export function updateCase(
     updatedAt: NOW(),
   };
   all[idx] = merged;
-  write(KEY_CASES, all);
+  // Null on a failed write, same contract as createCase: archiveCase and
+  // unarchiveCase return this straight through, and their callers show a
+  // success toast then immediately re-read storage. Returning the merged object
+  // regardless made the toast and the repainted page disagree in one frame.
+  if (!write(KEY_CASES, all)) return null;
   return merged;
 }
 
@@ -614,12 +741,39 @@ export function listRelatedPersons(caseId: string): CrsRelatedPerson[] {
   return all.filter((r) => r.caseId === caseId);
 }
 
-export function saveRelatedPersons(caseId: string, persons: CrsRelatedPerson[]): void {
+/**
+ * Every related person, grouped by case id, in ONE read.
+ *
+ * listRelatedPersons re-reads and re-parses the whole KEY_RELATED payload on
+ * each call, so calling it once per case turns a list filter into N full
+ * parses. Anything that matches over a set of cases should take this map and
+ * pass it down rather than look up per case.
+ *
+ * ONE CALL SITE STILL DOES IT THE OLD WAY, deliberately: app/content.tsx (the
+ * overview page) counts related persons with listRelatedPersons(c.id) per case.
+ * It was left alone because the change that introduced this helper was already
+ * in review and widening it would have meant re-reviewing another file — not
+ * because that call site is correct. It is the same defect; convert it when
+ * that page is next opened.
+ */
+export function listRelatedPersonsByCase(): Map<string, CrsRelatedPerson[]> {
+  const all = read<CrsRelatedPerson[]>(KEY_RELATED, []);
+  const byCase = new Map<string, CrsRelatedPerson[]>();
+  for (const r of all) {
+    const list = byCase.get(r.caseId) ?? [];
+    list.push(r);
+    byCase.set(r.caseId, list);
+  }
+  return byCase;
+}
+
+/** Returns false if the write did not land; the rows are then not stored. */
+export function saveRelatedPersons(caseId: string, persons: CrsRelatedPerson[]): boolean {
   const all = read<CrsRelatedPerson[]>(KEY_RELATED, []);
   const others = all.filter((r) => r.caseId !== caseId);
   // Re-stamp IDs for new rows.
   const next = persons.map((p) => (p.id ? p : { ...p, id: uuid() }));
-  write(KEY_RELATED, [...others, ...next]);
+  return write(KEY_RELATED, [...others, ...next]);
 }
 
 export function newRelatedPersonId(): string {
@@ -633,11 +787,12 @@ export function listOtherRisks(caseId: string): CrsOtherRisk[] {
   return all.filter((r) => r.caseId === caseId);
 }
 
-export function saveOtherRisks(caseId: string, risks: CrsOtherRisk[]): void {
+/** Returns false if the write did not land; the rows are then not stored. */
+export function saveOtherRisks(caseId: string, risks: CrsOtherRisk[]): boolean {
   const all = read<CrsOtherRisk[]>(KEY_OTHER_RISKS, []);
   const others = all.filter((r) => r.caseId !== caseId);
   const next = risks.map((r) => (r.id ? r : { ...r, id: uuid() }));
-  write(KEY_OTHER_RISKS, [...others, ...next]);
+  return write(KEY_OTHER_RISKS, [...others, ...next]);
 }
 
 export function newOtherRiskId(): string {
@@ -665,15 +820,26 @@ function normalizeSearch(value: string | undefined | null): string {
  * Single free-text match for a case: matches the case number, customer name,
  * national ID or stock code — and the same applicable fields (name / national
  * ID) of any related person. Empty query matches everything.
+ *
+ * `relatedByCase` is passed in, from listRelatedPersonsByCase(), rather than
+ * looked up here. It used to call listRelatedPersons(c.id), which re-parsed the
+ * entire related-persons payload once per case — and this runs inside a filter
+ * over every case, inside a useMemo keyed on the query, so that was a full
+ * parse per case on every keystroke. Taking the map makes it one read per
+ * search instead, and makes the function depend only on its arguments.
  */
-export function caseMatchesQuery(c: CrsRiskCaseFile, query: string): boolean {
+export function caseMatchesQuery(
+  c: CrsRiskCaseFile,
+  query: string,
+  relatedByCase: Map<string, CrsRelatedPerson[]>,
+): boolean {
   const q = normalizeSearch(query).trim();
   if (!q) return true;
   if (normalizeSearch(c.caseNumber).includes(q)) return true;
   if (normalizeSearch(c.customerName).includes(q)) return true;
   if (normalizeSearch(c.customerNationalId).includes(q)) return true;
   if (normalizeSearch(c.stockCode).includes(q)) return true;
-  return listRelatedPersons(c.id).some(
+  return (relatedByCase.get(c.id) ?? []).some(
     (r) => normalizeSearch(r.name).includes(q) || normalizeSearch(r.nationalId).includes(q),
   );
 }
@@ -684,45 +850,8 @@ export function caseMatchesQuery(c: CrsRiskCaseFile, query: string): boolean {
  */
 export function searchCasesByText(query: string): CrsRiskCaseFile[] {
   if (!normalizeSearch(query).trim()) return [];
-  return listCases().filter((c) => !c.isArchived && caseMatchesQuery(c, query));
-}
-
-export function searchCases(filter: CrsSearchFilter): CrsRiskCaseFile[] {
-  const cases = listCases();
-  const relatedByCase = new Map<string, CrsRelatedPerson[]>();
-
-  if (filter.relatedPersonName || filter.relatedPersonNationalId) {
-    const allRelated = read<CrsRelatedPerson[]>(KEY_RELATED, []);
-    for (const r of allRelated) {
-      const list = relatedByCase.get(r.caseId) ?? [];
-      list.push(r);
-      relatedByCase.set(r.caseId, list);
-    }
-  }
-
-  return cases.filter((c) => {
-    if (!matchesText(filter.customerName, c.customerName)) return false;
-    if (!matchesText(filter.customerNationalId, c.customerNationalId)) return false;
-    if (filter.stockCode && !matchesText(filter.stockCode, c.stockCode)) return false;
-    if (filter.dateFrom && c.createdAt < filter.dateFrom) return false;
-    if (filter.dateTo && c.createdAt > filter.dateTo) return false;
-
-    if (filter.relatedPersonName || filter.relatedPersonNationalId) {
-      const rel = relatedByCase.get(c.id) ?? [];
-      const anyMatch = rel.some(
-        (r) =>
-          matchesText(filter.relatedPersonName, r.name) &&
-          matchesText(filter.relatedPersonNationalId, r.nationalId) &&
-          // At least one of the two needs to be a real match (avoid "no filter
-          // = always matches" when both filter values are present but empty).
-          ((filter.relatedPersonName && (r.name ?? '').length > 0) ||
-            (filter.relatedPersonNationalId && (r.nationalId ?? '').length > 0)),
-      );
-      if (!anyMatch) return false;
-    }
-
-    return true;
-  });
+  const relatedByCase = listRelatedPersonsByCase();
+  return listCases().filter((c) => !c.isArchived && caseMatchesQuery(c, query, relatedByCase));
 }
 
 // ─── Audit log ──────────────────────────────────────────────────────────────

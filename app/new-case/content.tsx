@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { RiCheckboxCircleFill, RiErrorWarningFill } from '@remixicon/react';
@@ -27,7 +27,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertIcon, AlertTitle } from '@/components/ui/alert';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toEnglishDigits } from '@/app/components/person/format-utils';
-import { linkOrCreatePerson, type PersonLinkStatus } from '@/lib/customer-risk/person-link';
+import { useQuery } from '@tanstack/react-query';
+import {
+  ENGLISH_LANGUAGE_ID,
+  PERSIAN_LANGUAGE_ID,
+  linkOrCreatePerson,
+  listSexOptions,
+  type PersonLinkStatus,
+} from '@/lib/customer-risk/person-link';
 import { useActingBrokerage } from '../components/acting-brokerage-picker';
 import { RelatedPersonsEditor } from '../components/related-persons-editor';
 import { RisksEditor, type RiskEntry } from '../components/risks-editor';
@@ -76,7 +83,7 @@ function showError(msg: string) {
 }
 
 export function NewCaseContent() {
-  const { t } = useTranslation('customer-risk');
+  const { t, i18n } = useTranslation('customer-risk');
   const { brokerageId, tick } = useActingBrokerage();
   const router = useRouter();
 
@@ -90,6 +97,13 @@ export function NewCaseContent() {
   const [stockCode, setStockCode] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [fatherName, setFatherName] = useState('');
+  // 0 = nothing chosen. It is never sent as a sex: handleSave passes
+  // `sexId || undefined`, and linkOrCreatePerson refuses to CREATE without a
+  // real value rather than letting the DTO default supply one. validate()
+  // additionally requires a choice, but only once the options have settled with
+  // rows — so 0 does reach linkOrCreatePerson when Person cannot be asked, and
+  // being refused there is the intended outcome, not a gap.
+  const [sexId, setSexId] = useState(0);
 
   const [risks, setRisks] = useState<RiskEntry[]>([]);
 
@@ -99,6 +113,31 @@ export function NewCaseContent() {
   const [busy, setBusy] = useState(false);
 
   const [brokerageName, setBrokerageName] = useState('—');
+
+  // Sex options come from KSS.Service.Person, so they can be unavailable while
+  // this page still works. THREE states, and conflating any two of them is a
+  // defect — an earlier version of this file conflated the last two and filed
+  // cases with no person link while telling the operator Person was down:
+  //
+  //   pending          — no answer yet. We do not know. Do not save.
+  //   settled, []      — Person cannot be asked. Save, and file without a link.
+  //   settled, [rows]  — Person answered. A sex must be chosen.
+  //
+  // `sexOptions` is [] in the first TWO of those, so length is not a sufficient
+  // test; `sexOptionsPending` is what separates them.
+  //
+  // Blocking the save while pending is only legitimate because that state is
+  // BOUNDED: listSexOptions carries a 10s AbortSignal.timeout and swallows the
+  // rejection, so a hang settles to [] and lands in the middle case rather than
+  // waiting forever. Without that ceiling this gate would turn a slow Person
+  // service into a page that cannot save at all, which is the failure the whole
+  // item exists to prevent. If you remove the timeout, remove this gate too.
+  const { data: sexOptions = [], isPending: sexOptionsPending } = useQuery({
+    queryKey: ['person-reference-data', 'sex', i18n.language],
+    queryFn: () =>
+      listSexOptions(i18n.language === 'en' ? ENGLISH_LANGUAGE_ID : PERSIAN_LANGUAGE_ID),
+    staleTime: 5 * 60 * 1000,
+  });
 
   useEffect(() => {
     if (!brokerageId) {
@@ -129,6 +168,7 @@ export function NewCaseContent() {
       setCustomerLastName('');
       setDateOfBirth('');
       setFatherName('');
+      setSexId(0);
       setStockCode('');
     } else {
       setCompanyName('');
@@ -143,6 +183,27 @@ export function NewCaseContent() {
       }
       if (!customerLastName.trim()) {
         return t('validationCustomerLastName', { defaultValue: 'Last name is required.' });
+      }
+      // Its own check, not folded into validationIndividualFields below: that
+      // message names date of birth and father's name, and would start lying
+      // about which field is missing.
+      //
+      // Pending is NOT the same as unavailable. While the query is unsettled the
+      // Select is disabled, so the operator could not have chosen even if they
+      // wanted to — saving here would skip a required field and then report a
+      // Person outage that is not happening. Bounded by the 10s timeout in
+      // listSexOptions, so this asks for a retry rather than a wait forever.
+      if (sexOptionsPending) {
+        return t('validationSexOptionsPending', {
+          defaultValue: 'Still loading customer details — try again in a moment.',
+        });
+      }
+      // Settled and empty means Person cannot be asked. Do NOT block: this
+      // module promises a risk case stays filable when Person is unreachable.
+      // The case is filed without the link, and linkOrCreatePerson refuses to
+      // invent a value rather than falling through to the DTO default.
+      if (sexOptions.length > 0 && !sexId) {
+        return t('validationCustomerSex', { defaultValue: "Select the customer's sex." });
       }
     } else if (!companyName.trim()) {
       return t('validationCompanyName', { defaultValue: 'Company name is required.' });
@@ -182,14 +243,31 @@ export function NewCaseContent() {
       createdByUserName: actor,
     });
 
-    saveRelatedPersons(
+    // The case itself did not persist — localStorage is the only copy, so there
+    // is nothing to attach related persons, risks or an audit entry to. Bail
+    // before writing any of them; handleSave turns this into an error toast
+    // rather than the success message it would otherwise show.
+    if (!created) return null;
+
+    // The case itself is stored by this point, so a failure here is PARTIAL, not
+    // total — saying "nothing was saved" would be as wrong as the old silent
+    // success. Report it and carry on; the case is real and navigable.
+    const relatedStored = saveRelatedPersons(
       created.id,
       relatedPersons.map((r) => ({ ...r, caseId: created.id })),
     );
-    saveOtherRisks(
+    const risksStored = saveOtherRisks(
       created.id,
       otherEntries.map((r) => ({ id: r.id, caseId: created.id, riskType: '', description: r.description, amount: r.amount })),
     );
+    if (!relatedStored || !risksStored) {
+      showError(
+        t('toastCasePartiallySaved', {
+          defaultValue:
+            'The case was saved, but its related persons or other risks could not be stored.',
+        }),
+      );
+    }
 
     pushAuditEntry({
       brokerageId,
@@ -233,6 +311,11 @@ export function NewCaseContent() {
           lastName: customerLastName.trim(),
           fatherName: fatherName.trim() || undefined,
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth).toISOString() : undefined,
+          // undefined only when Person could not be asked — validate() requires
+          // a choice once the options have settled with rows, and refuses to
+          // save at all while they are still pending. linkOrCreatePerson will
+          // still LINK an existing person without it, and refuses to CREATE.
+          sexId: sexId || undefined,
         });
         customerPersonId = link.personId;
         personStatus = link.status;
@@ -254,7 +337,17 @@ export function NewCaseContent() {
       }
 
       const created = persistAndAudit(archiveAfter, customerPersonId);
-      if (!created) return;
+      if (!created) {
+        // validate() already rejected a missing acting brokerage, so reaching
+        // null here means the write itself failed. Say so: this used to fall
+        // through to "Case created." for a case that was never stored.
+        showError(
+          t('toastCaseSaveFailed', {
+            defaultValue: 'The case could not be saved in this browser. Nothing was stored.',
+          }),
+        );
+        return;
+      }
 
       if (personStatus === 'linked') {
         showSuccess(
@@ -279,8 +372,16 @@ export function NewCaseContent() {
 
   const isIndividual = customerType === 'Individual';
 
-  // Temporary caseId for the related-persons rows until the case is saved.
-  const tempCaseId = useMemo(() => `pending-${Math.random().toString(36).slice(2, 8)}`, []);
+  // Placeholder caseId for related-person rows until the case is saved; every
+  // row's caseId is overwritten with the real one in persistAndAudit, so the
+  // value is never persisted or compared.
+  //
+  // A constant, not Math.random(): a useMemo body runs in the server prerender
+  // AND again on the client, so a random value differs between the two. Nothing
+  // renders it today, which is the only reason that was not a hydration
+  // mismatch — the same impurity class as the related-persons read this item
+  // removes from the cases and archive filters.
+  const tempCaseId = 'pending';
 
   const addRelatedPerson = () => {
     setRelatedPersons((prev) => [
@@ -407,12 +508,61 @@ export function NewCaseContent() {
               </div>
               {isIndividual && (
                 <>
+                  {/* No preselected value. An Individual customer becomes a row
+                      in KSS.Service.Person, and this field is the only thing
+                      that decides its sex — before it existed, every one of
+                      them was written as male. A default would still be an
+                      assertion nobody made, so the placeholder is not a
+                      selectable option.
+                      Required once the options have loaded. NOT required when
+                      Person could not be asked — see validate(); the case is
+                      then filed with no person link rather than blocked. Do not
+                      "restore" an unconditional requirement here: that is the
+                      hard block on a soft dependency this design forbids. */}
                   <div className="space-y-1">
-                    <Label>{t('fatherName', { defaultValue: "Father's name" })}</Label>
+                    <Label>
+                      {t('customerSex', { defaultValue: 'Sex' })}
+                      <span className="text-destructive ml-1">*</span>
+                    </Label>
+                    <Select
+                      value={sexId ? String(sexId) : undefined}
+                      onValueChange={(value) => setSexId(Number(value))}
+                      disabled={sexOptions.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            sexOptionsPending
+                              ? t('loading', { defaultValue: 'Loading…' })
+                              : sexOptions.length === 0
+                                ? t('customerSexUnavailable', {
+                                    defaultValue: 'Unavailable — the case will be filed without a person link',
+                                  })
+                                : t('select', { defaultValue: 'Select' })
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sexOptions.map((s) => (
+                          <SelectItem key={s.sexId} value={String(s.sexId)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>
+                      {t('fatherName', { defaultValue: "Father's name" })}
+                      <span className="text-destructive ml-1">*</span>
+                    </Label>
                     <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                    <Label>{t('dateOfBirth', { defaultValue: 'Date of birth' })}</Label>
+                    <Label>
+                      {t('dateOfBirth', { defaultValue: 'Date of birth' })}
+                      <span className="text-destructive ml-1">*</span>
+                    </Label>
                     <DatePickerComponent value={dateOfBirth} onChange={(value) => setDateOfBirth(value)} />
                   </div>
                   <div className="space-y-1">

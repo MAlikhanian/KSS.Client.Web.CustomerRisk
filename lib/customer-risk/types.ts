@@ -41,6 +41,35 @@ export const ALL_USER_ROLES: readonly BrokerageUserRole[] = [
   'Viewer',
 ] as const;
 
+/**
+ * THE AUDIT VOCABULARY RECORDS OUTCOMES, NOT ATTEMPTS.
+ *
+ * Every action below names something that HAPPENED. A refused access is not an
+ * access: when a guard blocks or redirects a request, nothing is written, by
+ * design. That is why /search/[id] pushes no ViewOtherBrokerageCase for a case
+ * it renders not-found — the viewer did not view it, and an entry saying they
+ * did would be false. A false audit record is worse than a missing one, because
+ * it survives as evidence.
+ *
+ * This is written here, beside the vocabulary, because it was not written
+ * anywhere before, and the cost of that was not one wrong decision — it was
+ * every author deciding afresh from whichever page they were standing in, each
+ * of them correctly, and differently. The rule is here so the next person does
+ * not have to work it out again.
+ *
+ * THE LIMITATION, STATED ON PURPOSE: outcome-only auditing cannot support
+ * intrusion detection. Someone walking case ids looking for another brokerage's
+ * records leaves no trace at all, because every one of those requests is
+ * refused and a refusal is not an event. That is a consequence of this design,
+ * not a gap in it. If attempt-auditing is ever wanted it is a separate thing
+ * with its own terms — what counts as an attempt, what is kept, for how long,
+ * and who may read it.
+ *
+ * DO NOT ADD ATTEMPT-AUDITING ONE PAGE AT A TIME. A log that is part outcomes
+ * and part attempts answers neither question: you can no longer read an entry
+ * as "this happened", and the absence of an entry no longer means "this did not
+ * happen". The local fix is the thing that destroys the property.
+ */
 export type AuditAction =
   | 'Login'
   | 'CreateCase'
@@ -198,14 +227,8 @@ export interface CrsAuditLogEntry {
   timestamp: string;
 }
 
-// ─── Search filter shape ────────────────────────────────────────────────────
-
-export interface CrsSearchFilter {
-  customerName?: string;
-  customerNationalId?: string;
-  stockCode?: string;
-  relatedPersonName?: string;
-  relatedPersonNationalId?: string;
-  dateFrom?: string;
-  dateTo?: string;
-}
+// Removed: CrsSearchFilter. It typed the filter of a searchCases() that had no
+// call sites, and it carried no brokerageId — so the shape could not express a
+// tenant at all. Left in place it would have been lifted straight into a DTO by
+// whoever wrote the real search endpoint, which is how an unscoped query
+// becomes a contract. Reintroduce it only with a tenant field.
