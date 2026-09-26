@@ -9,10 +9,10 @@
   "pageTitleAdminUsers": "Brokerage Users",
   "pageTitleAdminIps": "IP Whitelist",
   "pageTitleAdminSecurity": "Security Overview",
-  "descLanding": "Self-declaration system for brokerage firms to record and manage customer risk records. Each brokerage manages its own case files; cross-brokerage discovery is limited to the search inquiry.",
+  "descLanding": "Self-declaration system for brokerage firms to record and manage customer risk records. Each brokerage manages and sees only its own case files.",
   "descCases": "Case files registered by your brokerage. Files cannot be deleted — only archived.",
-  "descNewCase": "Create a new risk case file. Once submitted it is owned by your brokerage and remains visible to others only through the search inquiry view.",
-  "descCaseDetail": "Edit, update or archive an existing risk case file.",
+  "descNewCase": "Create a new risk case file. Once saved, it belongs to your brokerage.",
+  "descCaseDetail": "View or archive an existing risk case file.",
   "descSearch": "Inquire on risk case files registered by all brokerages. Results show only the limited fields permitted by the access policy.",
   "descSearchDetail": "Cross-brokerage view — fields shown here are limited per the access policy. To see the full record, contact the owning brokerage.",
   "descAuditLog": "Activity log for your brokerage — logins, case-file actions, search inquiries and admin changes.",
@@ -308,5 +308,6 @@
   "personFound": "Found. This existing person will be linked to the case.",
   "personNotFoundNew": "No person with this national ID exists yet. Enter the new person’s details; they are saved in the language of this screen.",
   "customerSexUnavailableV1": "Unavailable — a new person cannot be filed until the list loads",
-  "errorPersonDuplicateNationalId": "Two people hold this national ID in the person records, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator."
+  "errorPersonDuplicateNationalId": "Two people hold this national ID in the person records, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.",
+  "previewOnlyBanner": "Preview version — for review only."
 }
