@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { CaseStatus } from '@/lib/customer-risk/types';
+
+type CaseStatus = 'Active' | 'Archived';
 
 export function CaseStatusBadge({
   archived,

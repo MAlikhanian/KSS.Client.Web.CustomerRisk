@@ -1,234 +1,270 @@
 /**
- * Shared types for the Customer Risk Record System (CRS / سامانه سابقه ریسک).
+ * Shapes exchanged with the Customer Risk (CRS) service, as JSON (camelCase).
  *
- * Each brokerage owns its own case files. Cross-brokerage querying is via a
- * search inquiry endpoint with field-level redaction enforced in the UI.
+ * These mirror KSS.Service.SEBA_ERP_CustomerRisk's DTOs field for field and
+ * are the only CRS types this zone has. Keep them exact: the service refuses a
+ * request body carrying any field it does not declare, so a field added here
+ * "for later" turns a working save into a 400.
  *
- * Field names mirror the planned DB shape so swapping the mock localStorage
- * store for real API calls is a 1:1 swap, not a rewrite.
+ * What is deliberately NOT here, and must not come back:
+ *   - a brokerage id on any request. The service resolves the filing brokerage
+ *     from the caller's own access on every request.
+ *   - a case number on any request. The service issues it.
+ *   - an audit entry type. The service writes its own audit; the page writes
+ *     none.
  */
 
-// ─── Enums ──────────────────────────────────────────────────────────────────
+/** LanguageId in KSS_Common: 12 Persian, 10 English. 0 means the service could not tell. */
+export const PERSIAN_LANGUAGE_ID = 12;
+export const ENGLISH_LANGUAGE_ID = 10;
 
-export type CustomerType = 'Individual' | 'Legal';
+/** The CRS permission codes the service reports on /Me. */
+export const CrsPermission = {
+  CaseRead: 'CustomerRisk.Case.Read',
+  CaseModify: 'CustomerRisk.Case.Modify',
+  SearchRead: 'CustomerRisk.Search.Read',
+} as const;
+export type CrsPermissionCode = (typeof CrsPermission)[keyof typeof CrsPermission];
 
-export type CaseStatus = 'Active' | 'Archived';
+// ─── Names ──────────────────────────────────────────────────────────────────
 
-export type RelationType =
-  | 'Spouse'
-  | 'Child'
-  | 'Parent'
-  | 'Sibling'
-  | 'BusinessPartner'
-  | 'LegalRepresentative'
-  | 'Other';
+export interface LookupNameDto {
+  languageId: number;
+  name: string;
+}
 
-export const ALL_RELATION_TYPES: readonly RelationType[] = [
-  'Spouse',
-  'Child',
-  'Parent',
-  'Sibling',
-  'BusinessPartner',
-  'LegalRepresentative',
-  'Other',
-] as const;
+export interface PersonNameDto {
+  languageId: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  fatherName?: string | null;
+}
 
-export type BrokerageUserRole = 'Admin' | 'Operator' | 'Viewer';
+export interface CompanyNameDto {
+  languageId: number;
+  name: string;
+}
 
-export const ALL_USER_ROLES: readonly BrokerageUserRole[] = [
-  'Admin',
-  'Operator',
-  'Viewer',
-] as const;
+// ─── /Me ────────────────────────────────────────────────────────────────────
 
-/**
- * THE AUDIT VOCABULARY RECORDS OUTCOMES, NOT ATTEMPTS.
- *
- * Every action below names something that HAPPENED. A refused access is not an
- * access: when a guard blocks or redirects a request, nothing is written, by
- * design. That is why /search/[id] pushes no ViewOtherBrokerageCase for a case
- * it renders not-found — the viewer did not view it, and an entry saying they
- * did would be false. A false audit record is worse than a missing one, because
- * it survives as evidence.
- *
- * This is written here, beside the vocabulary, because it was not written
- * anywhere before, and the cost of that was not one wrong decision — it was
- * every author deciding afresh from whichever page they were standing in, each
- * of them correctly, and differently. The rule is here so the next person does
- * not have to work it out again.
- *
- * THE LIMITATION, STATED ON PURPOSE: outcome-only auditing cannot support
- * intrusion detection. Someone walking case ids looking for another brokerage's
- * records leaves no trace at all, because every one of those requests is
- * refused and a refusal is not an event. That is a consequence of this design,
- * not a gap in it. If attempt-auditing is ever wanted it is a separate thing
- * with its own terms — what counts as an attempt, what is kept, for how long,
- * and who may read it.
- *
- * DO NOT ADD ATTEMPT-AUDITING ONE PAGE AT A TIME. A log that is part outcomes
- * and part attempts answers neither question: you can no longer read an entry
- * as "this happened", and the absence of an entry no longer means "this did not
- * happen". The local fix is the thing that destroys the property.
- */
-export type AuditAction =
-  | 'Login'
-  | 'CreateCase'
-  | 'EditCase'
-  | 'ArchiveCase'
-  | 'Unarchive'
-  | 'Search'
-  | 'ViewOtherBrokerageCase'
-  | 'UserCreated'
-  | 'UserUpdated'
-  | 'UserLocked'
-  | 'UserUnlocked'
-  | 'IpWhitelistAdded'
-  | 'IpWhitelistRemoved';
+export type MeStatus =
+  | 'resolved'
+  | 'noPerson'
+  | 'noFilingBrokerage'
+  | 'estateWideNoFilingBrokerage'
+  | 'ambiguous';
 
-// ─── Master data ────────────────────────────────────────────────────────────
-
-export interface CrsBrokerage {
+export interface BrokerageRefDto {
   id: string;
+  /** False when the brokerage's name could not be read; only the id is known. */
+  resolved: boolean;
+  names: CompanyNameDto[];
+}
+
+export interface MeDto {
+  status: MeStatus;
+  filingBrokerage: BrokerageRefDto | null;
+  /** Filled only when status is 'ambiguous'. */
+  candidates: BrokerageRefDto[];
+  permissions: string[];
+  /** Whether a CRS permission is required in addition to a filing brokerage. */
+  permissionRequired: boolean;
+  crossBrokerageEnabled: boolean;
+  legalCustomersEnabled: boolean;
+  bourseCodeEnabled: boolean;
+  /**
+   * Whether the service may create a person that search-first did not find.
+   * Optional because a service older than this field does not send it: absent
+   * means "not reported", which is not the same as false.
+   */
+  personCreateEnabled?: boolean;
+}
+
+// ─── Lookups ────────────────────────────────────────────────────────────────
+
+export interface LookupItemDto {
+  id: number;
   code: string;
-  nameFa: string;
-  nameEn: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  names: LookupNameDto[];
 }
 
-export interface CrsBrokerageUser {
-  id: string;
-  brokerageId: string;
-  username: string;
-  displayName: string;
-  role: BrokerageUserRole;
-  isActive: boolean;
-  /** Set when an Admin locks the account for emergency disable. */
-  lockedUntil?: string;
-  lastLoginAt?: string;
-  createdAt: string;
-  updatedAt: string;
+export interface RiskTypeLookupDto extends LookupItemDto {
+  /** False: at most one item of this type per case. */
+  allowsMultiple: boolean;
+  /** True: every item of this type needs a title. */
+  requiresTitle: boolean;
+  sortOrder: number;
 }
 
-export interface CrsIpWhitelistEntry {
-  id: string;
-  brokerageId: string;
-  ipAddress: string;
-  label: string;
-  addedByUserName: string;
-  addedAt: string;
+export interface LookupsDto {
+  riskTypes: RiskTypeLookupDto[];
+  customerTypes: LookupItemDto[];
+  relationTypes: LookupItemDto[];
 }
 
-// ─── Risk case file ─────────────────────────────────────────────────────────
+/** A reference row from the Person or Company service (sexes). */
+export interface ExternalLookupDto {
+  id: number;
+  names: LookupNameDto[];
+}
 
-export interface CrsRelatedPerson {
+/** CustomerType.Code of an individual; v1 files individuals only. */
+export const INDIVIDUAL_CUSTOMER_TYPE_CODE = 'Individual';
+
+// ─── Search-first ───────────────────────────────────────────────────────────
+
+/**
+ * A person as the directory holds it. Search-first and case reads carry the
+ * national id and names only; `sexId` and `dateOfBirth` are usually absent and
+ * a screen must render correctly without them.
+ */
+export interface PersonSummaryDto {
   id: string;
-  caseId: string;
-  /** Structured given name — the shape KSS.Service.Person stores. */
-  firstName?: string;
-  /** Structured family name — the shape KSS.Service.Person stores. */
-  lastName?: string;
-  /**
-   * Composed display value, kept in sync from firstName + lastName. Mirrors
-   * Person's `Translation.DisplayName`, which the DB recomputes from the two
-   * structured columns — search and every read site match on this.
-   */
-  name?: string;
-  nationalId?: string;
-  fatherName?: string;
-  dateOfBirth?: string;
-  relationType?: RelationType;
+  nationalId: string;
+  sexId?: number | null;
+  dateOfBirth?: string | null;
+  names: PersonNameDto[];
+}
+
+export interface CustomerLookupDto {
+  found: boolean;
+  person?: PersonSummaryDto | null;
+}
+
+// ─── Cases ──────────────────────────────────────────────────────────────────
+
+export interface PagedResultDto<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 /**
- * Embedded sub-record for the binary "credit risk" and "documents risk"
- * categories. `hasRisk` is required on the parent case file; the optional
- * `description` and `amount` are filled only when `hasRisk` is true.
+ * The case's customer. The case stores only a link; names are read from the
+ * Person or Company service at request time. `resolved` false means that read
+ * was not possible and only the link came back.
  */
-export interface CrsRiskCommon {
-  hasRisk: boolean;
-  description?: string;
-  amount?: number;
+export interface CaseCustomerDto {
+  customerType: string;
+  personId?: string | null;
+  companyId?: string | null;
+  resolved: boolean;
+  nationalId?: string | null;
+  personNames: PersonNameDto[];
+  companyNames: CompanyNameDto[];
+  dateOfBirth?: string | null;
+  sexId?: number | null;
 }
 
-/**
- * 0..N entries under the "other risks" category. Each row is fully optional
- * per spec; the parent flag `hasAnyOtherRisks` gates the section's visibility.
- */
-export interface CrsOtherRisk {
+export interface CaseSummaryDto {
   id: string;
-  caseId: string;
-  riskType?: string;
-  description?: string;
-  amount?: number;
-}
-
-export interface CrsRiskCaseFile {
-  id: string;
-  /** `YYYY-MM-brokerageCode-counter`, counter resets monthly per brokerage. */
   caseNumber: string;
-  brokerageId: string;
-  customerType: CustomerType;
-  /**
-   * Structured given name — Individual customers only. Legal entities have a
-   * company name and no first/last split.
-   */
-  customerFirstName?: string;
-  /** Structured family name — Individual customers only. */
-  customerLastName?: string;
-  /**
-   * Composed display value: `firstName lastName` for an Individual, the company
-   * name for a Legal entity. Mirrors Person's computed `DisplayName`; every
-   * table, detail page and the search predicate read this field.
-   */
-  customerName: string;
-  customerNationalId: string;
-  /**
-   * Link to the matching row in KSS.Service.Person, when one could be resolved.
-   * Individual customers only, and always optional — Person is a soft dependency,
-   * so a case stays filable when the link cannot be made. The as-filed identity
-   * fields above remain the record of what was asserted at filing time.
-   */
-  customerPersonId?: string;
-  /** Stock-trading code, applicable to Individual customers. */
-  stockCode?: string;
-  /** Required for Individual customers per spec. */
-  dateOfBirth?: string;
-  /** Required for Individual customers per spec. */
-  fatherName?: string;
-  creditRisk: CrsRiskCommon;
-  documentsRisk: CrsRiskCommon;
-  /** Master toggle for the "other risks" section — sub-records are separate. */
-  hasAnyOtherRisks: boolean;
-  additionalNotes?: string;
+  customer: CaseCustomerDto;
+  riskTypeCodes: string[];
+  relatedPersonCount: number;
   isArchived: boolean;
-  archivedAt?: string;
-  archivedByUserName?: string;
+  archivedAt?: string | null;
   createdAt: string;
-  createdByUserName: string;
-  updatedAt: string;
-  updatedByUserName?: string;
 }
 
-// ─── Audit log ──────────────────────────────────────────────────────────────
+export interface CaseItemTextDto {
+  languageId: number;
+  title?: string | null;
+  description?: string | null;
+}
 
-export interface CrsAuditLogEntry {
+export interface CaseItemDto {
   id: string;
-  brokerageId: string;
-  userName: string;
-  action: AuditAction;
-  /** Case#/User#/IP that the action affected, when applicable. */
-  resourceId?: string;
-  resourceLabel?: string;
-  ipAddress?: string;
-  /** Free-form details (search terms, change summary, etc.). */
-  details?: string;
-  timestamp: string;
+  riskTypeId: number;
+  riskTypeCode: string;
+  amount?: number | null;
+  texts: CaseItemTextDto[];
 }
 
-// Removed: CrsSearchFilter. It typed the filter of a searchCases() that had no
-// call sites, and it carried no brokerageId — so the shape could not express a
-// tenant at all. Left in place it would have been lifted straight into a DTO by
-// whoever wrote the real search endpoint, which is how an unscoped query
-// becomes a contract. Reintroduce it only with a tenant field.
+export interface CaseRelatedPersonDto {
+  id: string;
+  relationTypeId: number;
+  relationTypeCode: string;
+  personId: string;
+  resolved: boolean;
+  nationalId?: string | null;
+  names: PersonNameDto[];
+  dateOfBirth?: string | null;
+  sexId?: number | null;
+}
+
+export interface CaseNoteDto {
+  languageId: number;
+  additionalNotes?: string | null;
+}
+
+export interface CaseDetailDto {
+  id: string;
+  caseNumber: string;
+  caseJalaliYear: number;
+  caseJalaliMonth: number;
+  caseSequence: number;
+  customer: CaseCustomerDto;
+  items: CaseItemDto[];
+  relatedPersons: CaseRelatedPersonDto[];
+  notes: CaseNoteDto[];
+  isArchived: boolean;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface CaseListRequest {
+  archived: boolean;
+  q: string;
+  page: number;
+  pageSize: number;
+}
+
+// ─── Filing ─────────────────────────────────────────────────────────────────
+
+/** Every fact about a new person comes from the operator; nothing is defaulted. */
+export interface NewPersonFieldsDto {
+  sexId: number;
+  /** Gregorian YYYY-MM-DD, as the date picker gives it. */
+  dateOfBirth: string;
+  firstName: string;
+  lastName: string;
+  fatherName?: string;
+}
+
+export interface CaseCustomerInputDto {
+  nationalId: string;
+  newPerson?: NewPersonFieldsDto;
+}
+
+export interface CaseItemInputDto {
+  riskTypeId: number;
+  amount?: number;
+  title?: string;
+  description?: string;
+}
+
+export interface RelatedPersonInputDto {
+  relationTypeId: number;
+  nationalId: string;
+  newPerson?: NewPersonFieldsDto;
+}
+
+export interface CreateCaseRequestDto {
+  /** The language the text was entered in; it is stored in that language only. */
+  languageId: number;
+  customerTypeId: number;
+  customer: CaseCustomerInputDto;
+  items: CaseItemInputDto[];
+  relatedPersons: RelatedPersonInputDto[];
+  additionalNotes?: string;
+  archiveAfter: boolean;
+}
+
+export interface CaseCreatedDto {
+  id: string;
+  caseNumber: string;
+  isArchived: boolean;
+}

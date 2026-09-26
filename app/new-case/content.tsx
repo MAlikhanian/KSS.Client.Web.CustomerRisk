@@ -1,634 +1,340 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-import { RiCheckboxCircleFill, RiErrorWarningFill } from '@remixicon/react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Toolbar,
-  ToolbarDescription,
-  ToolbarHeading,
-  ToolbarPageTitle,
-} from '@/partials/common/toolbar';
-import { Button } from '@/components/ui/button';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { DatePickerComponent } from '@/components/ui/date-picker';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertIcon, AlertTitle } from '@/components/ui/alert';
 import { useTranslation } from '@/hooks/useTranslation';
-import { toEnglishDigits } from '@/app/components/person/format-utils';
-import { useQuery } from '@tanstack/react-query';
+import { createCase, getLookups, getSexes } from '@/lib/customer-risk/api';
+import { languageIdFor } from '@/lib/customer-risk/format';
+import { crsErrorMessage } from '@/lib/customer-risk/messages';
 import {
-  ENGLISH_LANGUAGE_ID,
-  PERSIAN_LANGUAGE_ID,
-  linkOrCreatePerson,
-  listSexOptions,
-  type PersonLinkStatus,
-} from '@/lib/customer-risk/person-link';
-import { useActingBrokerage } from '../components/acting-brokerage-picker';
-import { RelatedPersonsEditor } from '../components/related-persons-editor';
-import { RisksEditor, type RiskEntry } from '../components/risks-editor';
-import type {
-  CrsRelatedPerson,
-  CustomerType,
+  CrsPermission,
+  INDIVIDUAL_CUSTOMER_TYPE_CODE,
+  type CaseItemInputDto,
+  type CreateCaseRequestDto,
+  type LookupsDto,
+  type MeDto,
+  type NewPersonFieldsDto,
 } from '@/lib/customer-risk/types';
+import { CrsAccessGate, CrsNotice, useBrokerageLabel } from '../components/crs-access';
+import { CrsPage } from '../components/crs-page';
+import { showError, showSuccess } from '../components/crs-toast';
 import {
-  createCase,
-  archiveCase,
-  defaultActorName,
-  getBrokerage,
-  pushAuditEntry,
-  saveOtherRisks,
-  saveRelatedPersons,
-  newRelatedPersonId,
-  newOtherRiskId,
-} from '@/lib/customer-risk/mock-store';
-
-function showSuccess(msg: string) {
-  toast.custom(
-    () => (
-      <Alert variant="mono" icon="success">
-        <AlertIcon>
-          <RiCheckboxCircleFill />
-        </AlertIcon>
-        <AlertTitle>{msg}</AlertTitle>
-      </Alert>
-    ),
-    { position: 'top-center' },
-  );
-}
-
-function showError(msg: string) {
-  toast.custom(
-    () => (
-      <Alert variant="mono" icon="destructive">
-        <AlertIcon>
-          <RiErrorWarningFill />
-        </AlertIcon>
-        <AlertTitle>{msg}</AlertTitle>
-      </Alert>
-    ),
-    { position: 'top-center' },
-  );
-}
+  PersonEntry,
+  emptyPersonEntry,
+  personEntryProblem,
+  type PersonEntryValue,
+  type SexOptionsState,
+} from '../components/person-entry';
+import { RelatedPersonsEditor, type RelatedPersonDraft } from '../components/related-persons-editor';
+import {
+  RISK_DESCRIPTION_MAX,
+  RISK_TITLE_MAX,
+  RisksEditor,
+  type RiskDraft,
+} from '../components/risks-editor';
 
 export function NewCaseContent() {
-  const { t, i18n } = useTranslation('customer-risk');
-  const { brokerageId, tick } = useActingBrokerage();
-  const router = useRouter();
+  const { t } = useTranslation('customer-risk');
+  return (
+    <CrsPage title={t('pageTitleNewCase', { defaultValue: 'New Risk Case' })} description={t('descNewCase')}>
+      <CrsAccessGate permission={CrsPermission.CaseModify}>{(me) => <NewCaseForm me={me} />}</CrsAccessGate>
+    </CrsPage>
+  );
+}
 
-  const [customerType, setCustomerType] = useState<CustomerType>('Individual');
-  // Individual customers are captured as first + last, matching the structured
-  // shape KSS.Service.Person stores; Legal entities keep a single company name.
-  const [customerFirstName, setCustomerFirstName] = useState('');
-  const [customerLastName, setCustomerLastName] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [customerNationalId, setCustomerNationalId] = useState('');
-  const [stockCode, setStockCode] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [fatherName, setFatherName] = useState('');
-  // 0 = nothing chosen. It is never sent as a sex: handleSave passes
-  // `sexId || undefined`, and linkOrCreatePerson refuses to CREATE without a
-  // real value rather than letting the DTO default supply one. validate()
-  // additionally requires a choice, but only once the options have settled with
-  // rows — so 0 does reach linkOrCreatePerson when Person cannot be asked, and
-  // being refused there is the intended outcome, not a gap.
-  const [sexId, setSexId] = useState(0);
-
-  const [risks, setRisks] = useState<RiskEntry[]>([]);
-
-  const [relatedPersons, setRelatedPersons] = useState<CrsRelatedPerson[]>([]);
-  const [additionalNotes, setAdditionalNotes] = useState('');
-
-  const [busy, setBusy] = useState(false);
-
-  const [brokerageName, setBrokerageName] = useState('—');
-
-  // Sex options come from KSS.Service.Person, so they can be unavailable while
-  // this page still works. THREE states, and conflating any two of them is a
-  // defect — an earlier version of this file conflated the last two and filed
-  // cases with no person link while telling the operator Person was down:
-  //
-  //   pending          — no answer yet. We do not know. Do not save.
-  //   settled, []      — Person cannot be asked. Save, and file without a link.
-  //   settled, [rows]  — Person answered. A sex must be chosen.
-  //
-  // `sexOptions` is [] in the first TWO of those, so length is not a sufficient
-  // test; `sexOptionsPending` is what separates them.
-  //
-  // Blocking the save while pending is only legitimate because that state is
-  // BOUNDED: listSexOptions carries a 10s AbortSignal.timeout and swallows the
-  // rejection, so a hang settles to [] and lands in the middle case rather than
-  // waiting forever. Without that ceiling this gate would turn a slow Person
-  // service into a page that cannot save at all, which is the failure the whole
-  // item exists to prevent. If you remove the timeout, remove this gate too.
-  const { data: sexOptions = [], isPending: sexOptionsPending } = useQuery({
-    queryKey: ['person-reference-data', 'sex', i18n.language],
-    queryFn: () =>
-      listSexOptions(i18n.language === 'en' ? ENGLISH_LANGUAGE_ID : PERSIAN_LANGUAGE_ID),
+function NewCaseForm({ me }: { me: MeDto }) {
+  const { t } = useTranslation('customer-risk');
+  const { data: lookups, error } = useQuery({
+    queryKey: ['customer-risk', 'lookups'],
+    queryFn: getLookups,
     staleTime: 5 * 60 * 1000,
   });
 
-  useEffect(() => {
-    if (!brokerageId) {
-      setBrokerageName('—');
-      return;
-    }
-    const b = getBrokerage(brokerageId);
-    setBrokerageName(b?.nameFa ?? '—');
-  }, [brokerageId, tick]);
+  if (error) return <CrsNotice tone="destructive" title={crsErrorMessage(t, error)} />;
+  if (!lookups) return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
 
-  // Individual national ids are 10 digits; a Legal شناسه ملی is 11.
-  const nationalIdLength = customerType === 'Individual' ? 10 : 11;
+  const individual = lookups.customerTypes.find((c) => c.code === INDIVIDUAL_CUSTOMER_TYPE_CODE);
+  if (!individual) {
+    // v1 files individuals only, and the id to send comes from the service's
+    // own list. Without it there is nothing correct to send.
+    return (
+      <CrsNotice
+        tone="destructive"
+        title={t('errorNoIndividualType', {
+          defaultValue: 'The service did not return the Individual customer type, so a case cannot be filed.',
+        })}
+      />
+    );
+  }
 
-  /** Composed display value — `first last` for an Individual, the company name
-   *  for a Legal entity. Kept in sync the way Person recomputes DisplayName. */
-  const customerName =
-    customerType === 'Individual'
-      ? `${customerFirstName.trim()} ${customerLastName.trim()}`.trim()
-      : companyName.trim();
+  return <NewCaseFields me={me} lookups={lookups} customerTypeId={individual.id} />;
+}
 
-  // Switching customer type clears the fields belonging to the other branch, so
-  // a half-filled Individual can't leak into a Legal case (or the reverse).
-  const handleCustomerTypeChange = (type: CustomerType) => {
-    setCustomerType(type);
-    setCustomerNationalId('');
-    if (type === 'Legal') {
-      setCustomerFirstName('');
-      setCustomerLastName('');
-      setDateOfBirth('');
-      setFatherName('');
-      setSexId(0);
-      setStockCode('');
-    } else {
-      setCompanyName('');
-    }
+function NewCaseFields({
+  me,
+  lookups,
+  customerTypeId,
+}: {
+  me: MeDto;
+  lookups: LookupsDto;
+  customerTypeId: number;
+}) {
+  const { t, i18n } = useTranslation('customer-risk');
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const brokerageLabel = useBrokerageLabel();
+  const personCreateEnabled = me.personCreateEnabled;
+
+  const [customer, setCustomer] = useState<PersonEntryValue>(emptyPersonEntry);
+  const [related, setRelated] = useState<RelatedPersonDraft[]>([]);
+  const [risks, setRisks] = useState<RiskDraft[]>([]);
+  const [notes, setNotes] = useState('');
+
+  // Row keys for React only; a counter, never a generated GUID, and never sent.
+  const nextKey = useRef(0);
+  const newKey = () => `row-${++nextKey.current}`;
+
+  // The sex list is needed only once some person is not found. Three states,
+  // and they must not be conflated: pending (do not know yet), unavailable
+  // (settled with an error or with nothing — nobody can choose), and loaded.
+  const needsSexes =
+    personCreateEnabled !== false &&
+    (customer.lookup.kind === 'notFound' || related.some((r) => r.person.lookup.kind === 'notFound'));
+  const sexesQuery = useQuery({
+    queryKey: ['customer-risk', 'sexes'],
+    queryFn: getSexes,
+    staleTime: 5 * 60 * 1000,
+    enabled: needsSexes,
+  });
+  const sexOptions: SexOptionsState = {
+    options: sexesQuery.data ?? [],
+    pending: needsSexes && sexesQuery.isPending,
+    unavailable: !!sexesQuery.error || (!!sexesQuery.data && sexesQuery.data.length === 0),
   };
 
+  const newPersonFields = (entry: PersonEntryValue): NewPersonFieldsDto | undefined => {
+    if (entry.lookup.kind !== 'notFound') return undefined;
+    const d = entry.draft;
+    return {
+      sexId: d.sexId,
+      dateOfBirth: d.dateOfBirth,
+      firstName: d.firstName.trim(),
+      lastName: d.lastName.trim(),
+      ...(d.fatherName.trim() ? { fatherName: d.fatherName.trim() } : {}),
+    };
+  };
+
+  /** Every reason the case cannot be filed yet, checked before anything is sent. */
   const validate = (): string | null => {
-    if (!brokerageId) return t('errorNoActingBrokerage', { defaultValue: 'Pick an acting brokerage first.' });
-    if (customerType === 'Individual') {
-      if (!customerFirstName.trim()) {
-        return t('validationCustomerFirstName', { defaultValue: 'First name is required.' });
+    const customerProblem = personEntryProblem(t, customer, personCreateEnabled, sexOptions);
+    if (customerProblem) return `${t('customerCard', { defaultValue: 'Customer' })}: ${customerProblem}`;
+
+    const seen = new Set<string>();
+    for (let index = 0; index < related.length; index++) {
+      const row = related[index];
+      const label = `${t('relatedPersonsCard', { defaultValue: 'Related persons' })} ${index + 1}`;
+      if (!row.relationTypeId) {
+        return `${label}: ${t('validationRelationType', { defaultValue: 'Choose a relation for every related person.' })}`;
       }
-      if (!customerLastName.trim()) {
-        return t('validationCustomerLastName', { defaultValue: 'Last name is required.' });
+      const problem = personEntryProblem(t, row.person, personCreateEnabled, sexOptions);
+      if (problem) return `${label}: ${problem}`;
+      if (seen.has(row.person.nationalId)) {
+        return t('validationRelatedPersonDuplicate', { defaultValue: 'The same person is listed more than once.' });
       }
-      // Its own check, not folded into validationIndividualFields below: that
-      // message names date of birth and father's name, and would start lying
-      // about which field is missing.
-      //
-      // Pending is NOT the same as unavailable. While the query is unsettled the
-      // Select is disabled, so the operator could not have chosen even if they
-      // wanted to — saving here would skip a required field and then report a
-      // Person outage that is not happening. Bounded by the 10s timeout in
-      // listSexOptions, so this asks for a retry rather than a wait forever.
-      if (sexOptionsPending) {
-        return t('validationSexOptionsPending', {
-          defaultValue: 'Still loading customer details — try again in a moment.',
-        });
-      }
-      // Settled and empty means Person cannot be asked. Do NOT block: this
-      // module promises a risk case stays filable when Person is unreachable.
-      // The case is filed without the link, and linkOrCreatePerson refuses to
-      // invent a value rather than falling through to the DTO default.
-      if (sexOptions.length > 0 && !sexId) {
-        return t('validationCustomerSex', { defaultValue: "Select the customer's sex." });
-      }
-    } else if (!companyName.trim()) {
-      return t('validationCompanyName', { defaultValue: 'Company name is required.' });
+      seen.add(row.person.nationalId);
     }
-    if (customerNationalId.length !== nationalIdLength) {
-      return customerType === 'Individual'
-        ? t('validationNationalIdLength', { defaultValue: 'National ID must be exactly 10 digits.' })
-        : t('validationLegalIdLength', { defaultValue: 'Legal entity ID must be exactly 11 digits.' });
-    }
-    if (customerType === 'Individual' && (!dateOfBirth || !fatherName.trim())) {
-      return t('validationIndividualFields', { defaultValue: 'Individual customers require DOB + father.' });
+
+    const perType = new Map<number, number>();
+    for (let index = 0; index < risks.length; index++) {
+      const row = risks[index];
+      const label = `${t('risksCard', { defaultValue: 'Risks' })} ${index + 1}`;
+      const type = lookups.riskTypes.find((r) => r.id === row.riskTypeId);
+      if (!type) return `${label}: ${t('validationRiskType', { defaultValue: 'Choose a type for every risk.' })}`;
+      if (type.requiresTitle && !row.title.trim()) {
+        return `${label}: ${t('validationRiskTitle', { defaultValue: 'This risk type needs a title.' })}`;
+      }
+      if (row.title.trim().length > RISK_TITLE_MAX || row.description.trim().length > RISK_DESCRIPTION_MAX) {
+        return `${label}: ${t('validationTextTooLong', {
+          defaultValue: 'A title can be at most 100 characters and a description at most 1000.',
+        })}`;
+      }
+      perType.set(type.id, (perType.get(type.id) ?? 0) + 1);
+      if (!type.allowsMultiple && (perType.get(type.id) ?? 0) > 1) {
+        return `${label}: ${t('validationRiskTypeSingle', { defaultValue: 'This risk type can be added only once per case.' })}`;
+      }
     }
     return null;
   };
 
-  const persistAndAudit = (archiveAfter: boolean, customerPersonId?: string) => {
-    if (!brokerageId) return null;
-    const actor = defaultActorName(brokerageId);
-    const creditEntry = risks.find((r) => r.type === 'credit');
-    const documentsEntry = risks.find((r) => r.type === 'documents');
-    const otherEntries = risks.filter((r) => r.type === 'other');
-    const created = createCase({
-      brokerageId,
-      customerType,
-      customerFirstName: customerType === 'Individual' ? customerFirstName.trim() : undefined,
-      customerLastName: customerType === 'Individual' ? customerLastName.trim() : undefined,
-      customerName,
-      customerNationalId: customerNationalId.trim(),
-      customerPersonId,
-      stockCode: customerType === 'Individual' && stockCode.trim() ? stockCode.trim() : undefined,
-      dateOfBirth: customerType === 'Individual' ? new Date(dateOfBirth).toISOString() : undefined,
-      fatherName: customerType === 'Individual' ? fatherName.trim() : undefined,
-      creditRisk: creditEntry ? { hasRisk: true, amount: creditEntry.amount, description: creditEntry.description } : { hasRisk: false },
-      documentsRisk: documentsEntry ? { hasRisk: true, amount: documentsEntry.amount, description: documentsEntry.description } : { hasRisk: false },
-      hasAnyOtherRisks: otherEntries.length > 0,
-      additionalNotes: additionalNotes.trim() || undefined,
-      createdByUserName: actor,
-    });
+  const buildRequest = (): CreateCaseRequestDto => ({
+    languageId: languageIdFor(i18n.language),
+    customerTypeId,
+    customer: {
+      nationalId: customer.nationalId,
+      ...(newPersonFields(customer) ? { newPerson: newPersonFields(customer) } : {}),
+    },
+    relatedPersons: related.map((r) => ({
+      relationTypeId: r.relationTypeId,
+      nationalId: r.person.nationalId,
+      ...(newPersonFields(r.person) ? { newPerson: newPersonFields(r.person) } : {}),
+    })),
+    items: risks.map((r): CaseItemInputDto => ({
+      riskTypeId: r.riskTypeId,
+      ...(r.amount ? { amount: Number(r.amount) } : {}),
+      ...(r.title.trim() ? { title: r.title.trim() } : {}),
+      ...(r.description.trim() ? { description: r.description.trim() } : {}),
+    })),
+    ...(notes.trim() ? { additionalNotes: notes.trim() } : {}),
+    archiveAfter: false,
+  });
 
-    // The case itself did not persist — localStorage is the only copy, so there
-    // is nothing to attach related persons, risks or an audit entry to. Bail
-    // before writing any of them; handleSave turns this into an error toast
-    // rather than the success message it would otherwise show.
-    if (!created) return null;
-
-    // The case itself is stored by this point, so a failure here is PARTIAL, not
-    // total — saying "nothing was saved" would be as wrong as the old silent
-    // success. Report it and carry on; the case is real and navigable.
-    const relatedStored = saveRelatedPersons(
-      created.id,
-      relatedPersons.map((r) => ({ ...r, caseId: created.id })),
-    );
-    const risksStored = saveOtherRisks(
-      created.id,
-      otherEntries.map((r) => ({ id: r.id, caseId: created.id, riskType: '', description: r.description, amount: r.amount })),
-    );
-    if (!relatedStored || !risksStored) {
-      showError(
-        t('toastCasePartiallySaved', {
-          defaultValue:
-            'The case was saved, but its related persons or other risks could not be stored.',
-        }),
-      );
-    }
-
-    pushAuditEntry({
-      brokerageId,
-      userName: actor,
-      action: 'CreateCase',
-      resourceId: created.id,
-      resourceLabel: created.caseNumber,
-    });
-
-    if (archiveAfter) {
-      archiveCase(created.id, actor);
-      pushAuditEntry({
-        brokerageId,
-        userName: actor,
-        action: 'ArchiveCase',
-        resourceId: created.id,
-        resourceLabel: created.caseNumber,
-      });
-    }
-
-    return created;
-  };
-
-  const handleSave = async (archiveAfter: boolean) => {
-    const err = validate();
-    if (err) {
-      showError(err);
-      return;
-    }
-    setBusy(true);
-    try {
-      // Individual customers are mirrored into KSS.Service.Person. Person is a
-      // SOFT dependency: every failure path below still files the case, with the
-      // link left null — the as-filed snapshot is the record either way.
-      let customerPersonId: string | undefined;
-      let personStatus: PersonLinkStatus | undefined;
-      if (customerType === 'Individual') {
-        const link = await linkOrCreatePerson({
-          nationalId: customerNationalId.trim(),
-          firstName: customerFirstName.trim(),
-          lastName: customerLastName.trim(),
-          fatherName: fatherName.trim() || undefined,
-          dateOfBirth: dateOfBirth ? new Date(dateOfBirth).toISOString() : undefined,
-          // undefined only when Person could not be asked — validate() requires
-          // a choice once the options have settled with rows, and refuses to
-          // save at all while they are still pending. linkOrCreatePerson will
-          // still LINK an existing person without it, and refuses to CREATE.
-          sexId: sexId || undefined,
-        });
-        customerPersonId = link.personId;
-        personStatus = link.status;
-
-        if (link.status === 'duplicate') {
-          showError(
-            t('personDuplicateOutOfScope', {
-              defaultValue:
-                'This national ID already exists in the system but is not visible in your company. The case was filed without a person link.',
-            }),
-          );
-        } else if (link.status === 'failed') {
-          showError(
-            t('personLinkFailed', {
-              defaultValue: 'Could not reach the Person service. The case was filed without a person link.',
-            }),
-          );
-        }
-      }
-
-      const created = persistAndAudit(archiveAfter, customerPersonId);
-      if (!created) {
-        // validate() already rejected a missing acting brokerage, so reaching
-        // null here means the write itself failed. Say so: this used to fall
-        // through to "Case created." for a case that was never stored.
-        showError(
-          t('toastCaseSaveFailed', {
-            defaultValue: 'The case could not be saved in this browser. Nothing was stored.',
-          }),
-        );
-        return;
-      }
-
-      if (personStatus === 'linked') {
-        showSuccess(
-          t('personLinked', { defaultValue: 'Linked to an existing person record.' }),
-        );
-      } else if (personStatus === 'created') {
-        showSuccess(
-          t('personCreated', { defaultValue: 'Customer saved to the Person service.' }),
-        );
-      }
-
+  const save = useMutation({
+    mutationFn: (request: CreateCaseRequestDto) => createCase(request),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-risk', 'cases'] });
       showSuccess(
-        archiveAfter
-          ? t('toastCaseArchived', { defaultValue: 'Case archived.' })
-          : t('toastCaseCreated', { defaultValue: 'Case created.' }),
+        t('toastCaseCreatedNumber', { defaultValue: 'Case {{number}} created.', number: created.caseNumber }),
       );
       router.push(`/cases/${created.id}`);
-    } finally {
-      setBusy(false);
+    },
+    onError: (err) => showError(crsErrorMessage(t, err)),
+  });
+
+  const handleSave = () => {
+    const problem = validate();
+    if (problem) {
+      showError(problem);
+      return;
     }
+    save.mutate(buildRequest());
   };
 
-  const isIndividual = customerType === 'Individual';
-
-  // Placeholder caseId for related-person rows until the case is saved; every
-  // row's caseId is overwritten with the real one in persistAndAudit, so the
-  // value is never persisted or compared.
-  //
-  // A constant, not Math.random(): a useMemo body runs in the server prerender
-  // AND again on the client, so a random value differs between the two. Nothing
-  // renders it today, which is the only reason that was not a hydration
-  // mismatch — the same impurity class as the related-persons read this item
-  // removes from the cases and archive filters.
-  const tempCaseId = 'pending';
-
-  const addRelatedPerson = () => {
-    setRelatedPersons((prev) => [
-      ...prev,
-      { id: newRelatedPersonId(), caseId: tempCaseId, firstName: '', lastName: '', name: '', nationalId: '', fatherName: '', dateOfBirth: '', relationType: undefined },
-    ]);
-  };
-
-  const addRisk = () => {
-    setRisks((prev) => [...prev, { id: newOtherRiskId(), type: 'credit', amount: undefined, description: '' }]);
-  };
+  const busy = save.isPending;
 
   return (
-    <div className="space-y-5 lg:space-y-7.5">
-      <Card className="bg-rose-50/25! border-rose-100! dark:bg-rose-950/25! dark:border-rose-900! shadow-lg shadow-black/5">
-        <CardContent className="py-5">
-          <Toolbar>
-            <ToolbarHeading>
-              <ToolbarPageTitle text={t('pageTitleNewCase', { defaultValue: 'New Risk Case' })} />
-              <ToolbarDescription>{t('descNewCase')}</ToolbarDescription>
-            </ToolbarHeading>
-          </Toolbar>
+    <>
+      <CrsNotice
+        tone="info"
+        title={t('meResolved', {
+          defaultValue: 'You file cases for: {{name}}',
+          name: brokerageLabel(me.filingBrokerage),
+        })}
+      >
+        {t('newCaseNumberHint', {
+          defaultValue: 'The case number is issued by the system when the case is saved.',
+        })}
+      </CrsNotice>
+
+      {personCreateEnabled === false && (
+        <CrsNotice
+          title={t('errorPersonCreateNotAvailable', {
+            defaultValue: 'A new person cannot be created in this version. Only people who already exist can be filed.',
+          })}
+        />
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('customerCard', { defaultValue: 'Customer' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground mb-3">
+            {t('individualsOnlyHint', { defaultValue: 'This version files individual customers only.' })}
+          </p>
+          <PersonEntry
+            idPrefix="customer"
+            value={customer}
+            onChange={setCustomer}
+            sexOptions={sexOptions}
+            personCreateEnabled={personCreateEnabled}
+            disabled={busy}
+          />
         </CardContent>
       </Card>
 
-      <div
-        className={
-          'space-y-5 lg:space-y-7.5 ' +
-          '[&_div.rounded-xl.bg-card]:bg-rose-50/25! ' +
-          '[&_div.rounded-xl.bg-card]:border-rose-100! ' +
-          'dark:[&_div.rounded-xl.bg-card]:bg-rose-950/25! ' +
-          'dark:[&_div.rounded-xl.bg-card]:border-rose-900! ' +
-          '[&_div.rounded-xl.bg-card]:shadow-lg ' +
-          '[&_div.rounded-xl.bg-card]:shadow-black/5'
-        }
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('owningBrokerage', { defaultValue: 'Owning brokerage' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-base font-semibold">{brokerageName}</div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>{t('relatedPersonsCard', { defaultValue: 'Related persons' })}</CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              setRelated((prev) => [...prev, { key: newKey(), relationTypeId: 0, person: emptyPersonEntry() }])
+            }
+          >
+            <Plus className="size-4" />
+            {t('addRelatedPerson', { defaultValue: 'Add related person' })}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <RelatedPersonsEditor
+            rows={related}
+            setRows={setRelated}
+            relationTypes={lookups.relationTypes}
+            sexOptions={sexOptions}
+            personCreateEnabled={personCreateEnabled}
+            disabled={busy}
+          />
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('basicInfoCard', { defaultValue: 'Customer basic information' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <Label>{t('customerType', { defaultValue: 'Customer type' })}</Label>
-                <Select
-                  value={customerType}
-                  onValueChange={(v) => handleCustomerTypeChange(v as CustomerType)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Individual">
-                      {t('customerTypeIndividual', { defaultValue: 'Individual' })}
-                    </SelectItem>
-                    <SelectItem value="Legal">
-                      {t('customerTypeLegal', { defaultValue: 'Legal entity' })}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {isIndividual ? (
-                <>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('customerFirstName', { defaultValue: 'First name' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Input
-                      dir="rtl"
-                      value={customerFirstName}
-                      onChange={(e) => setCustomerFirstName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('customerLastName', { defaultValue: 'Last name' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Input
-                      dir="rtl"
-                      value={customerLastName}
-                      onChange={(e) => setCustomerLastName(e.target.value)}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-1">
-                  <Label>
-                    {t('customerNameLegal', { defaultValue: 'Company name' })}
-                    <span className="text-destructive ml-1">*</span>
-                  </Label>
-                  <Input dir="rtl" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-                </div>
-              )}
-              <div className="space-y-1">
-                <Label>
-                  {isIndividual
-                    ? t('customerNationalId', { defaultValue: 'National ID' })
-                    : t('customerLegalId', { defaultValue: 'Legal entity ID' })}
-                  <span className="text-destructive ml-1">*</span>
-                </Label>
-                <Input
-                  inputMode="numeric"
-                  maxLength={nationalIdLength}
-                  value={customerNationalId}
-                  onChange={(e) =>
-                    setCustomerNationalId(
-                      toEnglishDigits(e.target.value)
-                        .replace(/[^0-9]/g, '')
-                        .slice(0, nationalIdLength),
-                    )
-                  }
-                />
-              </div>
-              {isIndividual && (
-                <>
-                  {/* No preselected value. An Individual customer becomes a row
-                      in KSS.Service.Person, and this field is the only thing
-                      that decides its sex — before it existed, every one of
-                      them was written as male. A default would still be an
-                      assertion nobody made, so the placeholder is not a
-                      selectable option.
-                      Required once the options have loaded. NOT required when
-                      Person could not be asked — see validate(); the case is
-                      then filed with no person link rather than blocked. Do not
-                      "restore" an unconditional requirement here: that is the
-                      hard block on a soft dependency this design forbids. */}
-                  <div className="space-y-1">
-                    <Label>
-                      {t('customerSex', { defaultValue: 'Sex' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Select
-                      value={sexId ? String(sexId) : undefined}
-                      onValueChange={(value) => setSexId(Number(value))}
-                      disabled={sexOptions.length === 0}
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            sexOptionsPending
-                              ? t('loading', { defaultValue: 'Loading…' })
-                              : sexOptions.length === 0
-                                ? t('customerSexUnavailable', {
-                                    defaultValue: 'Unavailable — the case will be filed without a person link',
-                                  })
-                                : t('select', { defaultValue: 'Select' })
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sexOptions.map((s) => (
-                          <SelectItem key={s.sexId} value={String(s.sexId)}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('fatherName', { defaultValue: "Father's name" })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('dateOfBirth', { defaultValue: 'Date of birth' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <DatePickerComponent value={dateOfBirth} onChange={(value) => setDateOfBirth(value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('stockCode', { defaultValue: 'Stock code' })}</Label>
-                    <Input value={stockCode} onChange={(e) => setStockCode(e.target.value)} />
-                  </div>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>{t('risksCard', { defaultValue: 'Risks' })}</CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              setRisks((prev) => [
+                ...prev,
+                { key: newKey(), riskTypeId: 0, amount: '', title: '', description: '' },
+              ])
+            }
+          >
+            <Plus className="size-4" />
+            {t('addRisk', { defaultValue: 'Add risk' })}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <RisksEditor rows={risks} setRows={setRisks} riskTypes={lookups.riskTypes} disabled={busy} />
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>{t('relatedPersonsCard', { defaultValue: 'Related persons' })}</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={addRelatedPerson}>
-              <Plus className="h-4 w-4 ml-1" />
-              {t('addRelatedPerson', { defaultValue: 'Add related person' })}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('additionalNotesCard', { defaultValue: 'Additional notes' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea rows={4} value={notes} disabled={busy} onChange={(e) => setNotes(e.target.value)} />
+          <p className="text-xs text-muted-foreground mt-2">
+            {t('textLanguageHint', {
+              defaultValue: 'Titles, descriptions and notes are saved in the language of this screen.',
+            })}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('operationsCard', { defaultValue: 'Operations' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button disabled={busy} onClick={handleSave}>
+              {busy ? t('saving', { defaultValue: 'Saving…' }) : t('save', { defaultValue: 'Save' })}
             </Button>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">{t('relatedPersonsHint')}</p>
-            <RelatedPersonsEditor rows={relatedPersons} onChange={setRelatedPersons} caseId={tempCaseId} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>{t('risksCard', { defaultValue: 'Risks' })}</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={addRisk}>
-              <Plus className="h-4 w-4 ml-1" />
-              {t('addRisk', { defaultValue: 'Add risk' })}
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <RisksEditor rows={risks} onChange={setRisks} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('additionalNotesCard', { defaultValue: 'Additional notes' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              rows={4}
-              value={additionalNotes}
-              onChange={(e) => setAdditionalNotes(e.target.value)}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('operationsCard', { defaultValue: 'Operations' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap justify-end gap-3">
-              <Button disabled={busy} onClick={() => handleSave(false)}>
-                {t('save', { defaultValue: 'Save' })}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 }
-

@@ -1,489 +1,354 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-import { RiCheckboxCircleFill, RiErrorWarningFill } from '@remixicon/react';
+import { useState } from 'react';
+import Link from 'next/link';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Toolbar,
-  ToolbarDescription,
-  ToolbarHeading,
-  ToolbarPageTitle,
-} from '@/partials/common/toolbar';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { DatePickerComponent } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertIcon, AlertTitle } from '@/components/ui/alert';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useActingBrokerage } from '../../components/acting-brokerage-picker';
-import { CaseStatusBadge } from '../../components/case-status-badge';
-import { RelatedPersonsEditor } from '../../components/related-persons-editor';
-import { RisksEditor, type RiskEntry } from '../../components/risks-editor';
-import type {
-  CrsRelatedPerson,
-  CrsRiskCaseFile,
-  CustomerType,
-} from '@/lib/customer-risk/types';
+import { archiveCase, getCase, getLookups, getSexes, unarchiveCase } from '@/lib/customer-risk/api';
 import {
-  archiveCase,
-  defaultActorName,
-  getBrokerage,
-  getCaseForBrokerage,
-  listOtherRisks,
-  listRelatedPersons,
-  pushAuditEntry,
-  unarchiveCase,
-} from '@/lib/customer-risk/mock-store';
-import type { CaseAccess } from '@/lib/customer-risk/mock-store';
-import { formatDate, formatDateTime } from '@/lib/customer-risk/format';
-
-function showSuccess(msg: string) {
-  toast.custom(
-    () => (
-      <Alert variant="mono" icon="success">
-        <AlertIcon>
-          <RiCheckboxCircleFill />
-        </AlertIcon>
-        <AlertTitle>{msg}</AlertTitle>
-      </Alert>
-    ),
-    { position: 'top-center' },
-  );
-}
-
-function showError(msg: string) {
-  toast.custom(
-    () => (
-      <Alert variant="mono" icon="destructive">
-        <AlertIcon>
-          <RiErrorWarningFill />
-        </AlertIcon>
-        <AlertTitle>{msg}</AlertTitle>
-      </Alert>
-    ),
-    { position: 'top-center' },
-  );
-}
+  fatherName,
+  formatDateOnly,
+  formatDateTime,
+  formatRial,
+  languageIdFor,
+  lookupName,
+  personName,
+  pickByLanguage,
+} from '@/lib/customer-risk/format';
+import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
+import {
+  CrsPermission,
+  INDIVIDUAL_CUSTOMER_TYPE_CODE,
+  type CaseDetailDto,
+  type MeDto,
+} from '@/lib/customer-risk/types';
+import { CaseStatusBadge } from '../../components/case-status-badge';
+import { customerDisplayName } from '../../components/case-list';
+import { CrsAccessGate, CrsNotice, hasCrsPermission } from '../../components/crs-access';
+import { CrsPage } from '../../components/crs-page';
+import { showError, showSuccess } from '../../components/crs-toast';
 
 export function CaseDetailContent({ id }: { id: string }) {
   const { t } = useTranslation('customer-risk');
-  const { brokerageId, tick } = useActingBrokerage();
-  const router = useRouter();
+  return (
+    <CrsPage
+      title={t('pageTitleCaseDetail', { defaultValue: 'Risk Case' })}
+      description={t('descCaseDetail')}
+      actions={
+        <Button asChild variant="outline" size="sm">
+          <Link href="/cases">{t('back', { defaultValue: 'Back' })}</Link>
+        </Button>
+      }
+    >
+      <CrsAccessGate permission={CrsPermission.CaseRead}>{(me) => <CaseDetail id={id} me={me} />}</CrsAccessGate>
+    </CrsPage>
+  );
+}
 
-  const [access, setAccess] = useState<CaseAccess['status'] | null>(null);
-  const [caseFile, setCaseFile] = useState<CrsRiskCaseFile | null>(null);
-  const [relatedPersons, setRelatedPersons] = useState<CrsRelatedPerson[]>([]);
-  const [risks, setRisks] = useState<RiskEntry[]>([]);
-  const [customerName, setCustomerName] = useState('');
-  const [customerFirstName, setCustomerFirstName] = useState('');
-  const [customerLastName, setCustomerLastName] = useState('');
-  const [customerNationalId, setCustomerNationalId] = useState('');
-  const [stockCode, setStockCode] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [fatherName, setFatherName] = useState('');
-  const [customerType, setCustomerType] = useState<CustomerType>('Individual');
-  const [additionalNotes, setAdditionalNotes] = useState('');
-  const [brokerageName, setBrokerageName] = useState('—');
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="text-sm font-medium break-words">{children}</div>
+    </div>
+  );
+}
 
-  const refresh = useCallback(() => {
-    // Scoped read: another brokerage's case is never returned here, so it never
-    // reaches component state. brokerageId is null on the very first paint —
-    // useActingBrokerage sets it in its own mount effect — so hold rather than
-    // read unscoped.
-    //
-    // WHAT RE-RUNS THIS when brokerageId arrives: `brokerageId` is in this
-    // useCallback's dependency list, so `refresh`'s identity changes and the
-    // [refresh, tick] effect below fires again. It is NOT `tick` — that is only
-    // incremented by the acting-changed event handler, so it stays 0 for a whole
-    // visit unless the operator touches the brokerage picker. Do not remove
-    // `brokerageId` from the deps as redundant: the closure would capture null
-    // for the lifetime of the page and every owner would see "No data found."
-    // on their own case.
-    if (!brokerageId) {
-      setAccess(null);
-      setCaseFile(null);
-      return;
+function CaseDetail({ id, me }: { id: string; me: MeDto }) {
+  const { t } = useTranslation('customer-risk');
+
+  // A case read is a read of another service's records too (the customer's
+  // name), so a refusal is final for this visit: no retries.
+  const { data: caseFile, error, isPending } = useQuery({
+    queryKey: ['customer-risk', 'case', id],
+    queryFn: () => getCase(id),
+    retry: false,
+  });
+
+  if (error) {
+    // Another brokerage's case is refused by the service, and the refusal is
+    // all that reaches this page: no part of that case is ever in state here.
+    // It is explained in place rather than redirected: the inquiry view it
+    // would lead to is not part of this version.
+    if (isCrsCode(error, 'CRS_FOREIGN_CASE') || isCrsCode(error, 'CRS_CASE_NOT_FOUND')) {
+      return <CrsNotice title={crsErrorMessage(t, error)} />;
     }
-    const result = getCaseForBrokerage(id, brokerageId);
-    setAccess(result.status);
-    const c = result.status === 'ok' ? result.caseFile : null;
-    setCaseFile(c);
-    if (c) {
-      setRelatedPersons(listRelatedPersons(c.id));
-      const riskList: RiskEntry[] = [];
-      if (c.creditRisk?.hasRisk) {
-        riskList.push({ id: '__credit', type: 'credit', amount: c.creditRisk.amount, description: c.creditRisk.description });
-      }
-      if (c.documentsRisk?.hasRisk) {
-        riskList.push({ id: '__documents', type: 'documents', amount: c.documentsRisk.amount, description: c.documentsRisk.description });
-      }
-      for (const o of listOtherRisks(c.id)) {
-        riskList.push({ id: o.id, type: 'other', amount: o.amount, description: o.description });
-      }
-      setRisks(riskList);
-      setCustomerName(c.customerName);
-      setCustomerFirstName(c.customerFirstName ?? '');
-      setCustomerLastName(c.customerLastName ?? '');
-      setCustomerNationalId(c.customerNationalId);
-      setStockCode(c.stockCode ?? '');
-      setDateOfBirth(c.dateOfBirth ? c.dateOfBirth.slice(0, 10) : '');
-      setFatherName(c.fatherName ?? '');
-      setCustomerType(c.customerType);
-      setAdditionalNotes(c.additionalNotes ?? '');
-      const b = getBrokerage(c.brokerageId);
-      setBrokerageName(b?.nameFa ?? '—');
-    }
-  }, [id, brokerageId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh, tick]);
-
-  // A case owned by another brokerage belongs on /search/[id]: that is the
-  // cross-brokerage view, it shows less, and it writes a ViewOtherBrokerageCase
-  // audit entry. Redirecting from an effect rather than during render — the
-  // guard at search/[id] does it in render, which is a side effect in render
-  // and should not be copied.
-  //
-  // NOT OBSERVED IN A BROWSER. Predicted, not verified — to reproduce, open
-  //   /customer-risk/cases/<id of a case whose brokerageId is NOT the acting
-  //   brokerage>
-  // with 'customer-risk:acting-brokerage' set to some other brokerage, and watch
-  // what paints before the redirect lands. Predicted: nothing of that case, at
-  // any point. getCaseForBrokerage never returns a foreign record, so unlike a
-  // render-time ownership test there is nothing in `caseFile` to paint — the
-  // first render already takes the `return null` below. The weaker prediction,
-  // that it paints once and is then replaced, would apply to a guard placed
-  // after an unscoped getCase(); that is not what this does.
-  // Also unverified: that the redirect target renders. Note this is NOT because
-  // /search/[id] is unreachable — the search results table has always linked to
-  // it for non-own rows; that link was broken by the doubled basePath and is
-  // repaired by the same change as this. So there is a cheap way to exercise
-  // this path: search, then open a row belonging to another brokerage.
-  useEffect(() => {
-    if (access === 'foreign') router.replace(`/search/${id}`);
-  }, [access, id, router]);
-
-  if (access === 'foreign') return null;
-
-  // No acting brokerage, so there is no scope to read with. This is NOT the same
-  // as 'missing' — there may well be a case at this id; we cannot say. "No data
-  // found." would therefore be a lie, and rendering nothing was worse: silent,
-  // and permanent rather than transient whenever listBrokerages() comes back
-  // empty, because acting-brokerage-picker.tsx:36 then takes neither branch, so
-  // no key is written and no acting-changed event is ever dispatched.
-  //
-  // On a cold browser this can show for a frame before the picker seeds the key
-  // and dispatches. That is a briefly-visible true statement, not a wrong one.
-  if (!brokerageId) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          {t('errorNoActingBrokerage', { defaultValue: 'Pick an acting brokerage first.' })}
-        </CardContent>
-      </Card>
-    );
+    return <CrsNotice tone="destructive" title={crsErrorMessage(t, error)} />;
+  }
+  if (isPending || !caseFile) {
+    return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
   }
 
-  // Scope exists but refresh() has not run for it yet — one frame. Render
-  // nothing rather than flash "No data found." at an owner about to be shown
-  // their own case.
-  if (access === null) return null;
+  return <CaseView caseFile={caseFile} canModify={hasCrsPermission(me, CrsPermission.CaseModify)} />;
+}
 
-  if (!caseFile) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          {t('searchNoResults', { defaultValue: 'No data found.' })}
-        </CardContent>
-      </Card>
-    );
-  }
+function CaseView({ caseFile, canModify }: { caseFile: CaseDetailDto; canModify: boolean }) {
+  const { t, i18n } = useTranslation('customer-risk');
+  const isRtl = i18n.language === 'fa' || i18n.language === 'persian';
+  const languageId = languageIdFor(i18n.language);
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
 
-  // Always true now: the scoped read above only ever yields this brokerage's
-  // case. Kept as defence in depth for the archive/unarchive guards below. The
-  // "Owning brokerage" warning badge it also gates has become unreachable.
-  const ownsCase = brokerageId === caseFile.brokerageId;
-  const canEdit = ownsCase && !caseFile.isArchived;
-  const isIndividual = customerType === 'Individual';
+  const { data: lookups } = useQuery({
+    queryKey: ['customer-risk', 'lookups'],
+    queryFn: getLookups,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const handleCustomerTypeChange = (type: CustomerType) => {
-    setCustomerType(type);
-    if (type === 'Legal') {
-      setDateOfBirth('');
-      setFatherName('');
-      setStockCode('');
-    }
-  };
+  const customer = caseFile.customer;
+  const individual = customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE;
 
-  const handleArchive = () => {
-    if (!ownsCase) return;
-    if (!window.confirm(t('confirmArchive', { defaultValue: 'Archive this case?' }))) return;
-    const actor = defaultActorName(caseFile.brokerageId);
-    // Null means the write did not land. Reporting success here and then calling
-    // refresh() painted the case as still Active in the same frame as a "Case
-    // archived." toast.
-    if (!archiveCase(caseFile.id, actor)) {
-      showError(
-        t('toastChangeNotSaved', {
-          defaultValue: 'The change could not be saved in this browser.',
-        }),
+  // People found through the directory usually come without sex and date of
+  // birth. The sex list is fetched only when a sex is actually present.
+  const { data: sexes } = useQuery({
+    queryKey: ['customer-risk', 'sexes'],
+    queryFn: getSexes,
+    staleTime: 5 * 60 * 1000,
+    enabled: customer.sexId != null,
+  });
+
+  const toggle = useMutation({
+    mutationFn: () => (caseFile.isArchived ? unarchiveCase(caseFile.id) : archiveCase(caseFile.id)),
+    onSuccess: () => {
+      showSuccess(
+        caseFile.isArchived
+          ? t('toastCaseUnarchived', { defaultValue: 'Case restored.' })
+          : t('toastCaseArchived', { defaultValue: 'Case archived.' }),
       );
-      return;
-    }
-    pushAuditEntry({
-      brokerageId: caseFile.brokerageId,
-      userName: actor,
-      action: 'ArchiveCase',
-      resourceId: caseFile.id,
-      resourceLabel: caseFile.caseNumber,
-    });
-    showSuccess(t('toastCaseArchived', { defaultValue: 'Case archived.' }));
-    refresh();
-  };
+      queryClient.invalidateQueries({ queryKey: ['customer-risk', 'case', caseFile.id] });
+      queryClient.invalidateQueries({ queryKey: ['customer-risk', 'cases'] });
+    },
+    onError: (err) => showError(crsErrorMessage(t, err)),
+    onSettled: () => setConfirming(false),
+  });
 
-  const handleUnarchive = () => {
-    if (!ownsCase) return;
-    if (!window.confirm(t('confirmUnarchive', { defaultValue: 'Restore from archive?' }))) return;
-    const actor = defaultActorName(caseFile.brokerageId);
-    if (!unarchiveCase(caseFile.id, actor)) {
-      showError(
-        t('toastChangeNotSaved', {
-          defaultValue: 'The change could not be saved in this browser.',
-        }),
-      );
-      return;
-    }
-    pushAuditEntry({
-      brokerageId: caseFile.brokerageId,
-      userName: actor,
-      action: 'Unarchive',
-      resourceId: caseFile.id,
-      resourceLabel: caseFile.caseNumber,
-    });
-    showSuccess(t('toastCaseUnarchived', { defaultValue: 'Case restored.' }));
-    refresh();
-  };
+  const name = customerDisplayName(customer, languageId);
+  const father = individual ? fatherName(customer.personNames, languageId) : '';
+  const sexName =
+    customer.sexId != null
+      ? lookupName(sexes?.find((s) => s.id === customer.sexId)?.names, languageId)
+      : '';
+  const relationName = (relationTypeId: number, code: string) =>
+    lookupName(lookups?.relationTypes.find((r) => r.id === relationTypeId)?.names, languageId) || code;
+  const riskName = (riskTypeId: number, code: string) =>
+    lookupName(lookups?.riskTypes.find((r) => r.id === riskTypeId)?.names, languageId) || code;
+  const note = pickByLanguage(caseFile.notes, languageId)?.additionalNotes?.trim();
 
   return (
-    <div className="space-y-5 lg:space-y-7.5">
-      <Card className="bg-rose-50/25! border-rose-100! dark:bg-rose-950/25! dark:border-rose-900! shadow-lg shadow-black/5">
-        <CardContent className="py-5">
-          <Toolbar>
-            <ToolbarHeading>
-              <div className="flex items-center gap-3 flex-wrap">
-                <ToolbarPageTitle
-                  text={`${t('pageTitleCaseDetail', { defaultValue: 'Risk Case' })} — ${caseFile.caseNumber}`}
-                />
-                <CaseStatusBadge archived={caseFile.isArchived} />
-                {!ownsCase && (
-                  <Badge variant="warning" appearance="light" className="text-xs">
-                    {t('owningBrokerage', { defaultValue: 'Owning brokerage' })}: {brokerageName}
-                  </Badge>
-                )}
-              </div>
-              <ToolbarDescription>{t('descCaseDetail')}</ToolbarDescription>
-            </ToolbarHeading>
-          </Toolbar>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('caseInfoCard', { defaultValue: 'Case' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Field label={t('caseNumber', { defaultValue: 'Case #' })}>
+              <span className="font-mono">{caseFile.caseNumber}</span>
+            </Field>
+            <Field label={t('filterStatus', { defaultValue: 'Status' })}>
+              <CaseStatusBadge archived={caseFile.isArchived} />
+            </Field>
+            <Field label={t('createdAt', { defaultValue: 'Created' })}>{formatDateTime(caseFile.createdAt)}</Field>
+            {caseFile.isArchived ? (
+              <Field label={t('archivedAt', { defaultValue: 'Archived' })}>{formatDateTime(caseFile.archivedAt)}</Field>
+            ) : (
+              <Field label={t('updatedAt', { defaultValue: 'Updated' })}>{formatDateTime(caseFile.updatedAt)}</Field>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      <div
-        className={
-          'space-y-5 lg:space-y-7.5 ' +
-          '[&_div.rounded-xl.bg-card]:bg-rose-50/25! ' +
-          '[&_div.rounded-xl.bg-card]:border-rose-100! ' +
-          'dark:[&_div.rounded-xl.bg-card]:bg-rose-950/25! ' +
-          'dark:[&_div.rounded-xl.bg-card]:border-rose-900! ' +
-          '[&_div.rounded-xl.bg-card]:shadow-lg ' +
-          '[&_div.rounded-xl.bg-card]:shadow-black/5'
-        }
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('basicInfoCard', { defaultValue: 'Customer basic information' })}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  {t('caseNumber', { defaultValue: 'Case #' })}
-                </Label>
-                <div className="font-mono text-sm">{caseFile.caseNumber}</div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  {t('owningBrokerage', { defaultValue: 'Owning brokerage' })}
-                </Label>
-                <div className="text-sm">{brokerageName}</div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  {t('createdAt', { defaultValue: 'Created' })}
-                </Label>
-                <div className="text-sm">
-                  {formatDateTime(caseFile.createdAt)}
-                  <div className="text-xs text-muted-foreground">{caseFile.createdByUserName}</div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  {t('updatedAt', { defaultValue: 'Updated' })}
-                </Label>
-                <div className="text-sm">
-                  {formatDateTime(caseFile.updatedAt)}
-                  {caseFile.updatedByUserName && (
-                    <div className="text-xs text-muted-foreground">{caseFile.updatedByUserName}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <Label>{t('customerType', { defaultValue: 'Customer type' })}</Label>
-                <Select
-                  value={customerType}
-                  onValueChange={(v) => handleCustomerTypeChange(v as CustomerType)}
-                  disabled
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Individual">{t('customerTypeIndividual', { defaultValue: 'Individual' })}</SelectItem>
-                    <SelectItem value="Legal">{t('customerTypeLegal', { defaultValue: 'Legal entity' })}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {isIndividual ? (
-                <>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('customerFirstName', { defaultValue: 'First name' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Input dir="rtl" value={customerFirstName} disabled />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>
-                      {t('customerLastName', { defaultValue: 'Last name' })}
-                      <span className="text-destructive ml-1">*</span>
-                    </Label>
-                    <Input dir="rtl" value={customerLastName} disabled />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-1">
-                  <Label>
-                    {t('customerNameLegal', { defaultValue: 'Company name' })}
-                    <span className="text-destructive ml-1">*</span>
-                  </Label>
-                  <Input dir="rtl" value={customerName} disabled />
-                </div>
-              )}
-              <div className="space-y-1">
-                <Label>
-                  {isIndividual
-                    ? t('customerNationalId', { defaultValue: 'National ID' })
-                    : t('customerLegalId', { defaultValue: 'Legal entity ID' })}
-                  <span className="text-destructive ml-1">*</span>
-                </Label>
-                <Input value={customerNationalId} onChange={(e) => setCustomerNationalId(e.target.value)} disabled />
-              </div>
-              {isIndividual && (
-                <>
-                  <div className="space-y-1">
-                    <Label>{t('fatherName', { defaultValue: "Father's name" })}</Label>
-                    <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} disabled />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('dateOfBirth', { defaultValue: 'Date of birth' })}</Label>
-                    <DatePickerComponent value={dateOfBirth} onChange={(value) => setDateOfBirth(value)} disabled />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('stockCode', { defaultValue: 'Stock code' })}</Label>
-                    <Input value={stockCode} onChange={(e) => setStockCode(e.target.value)} disabled />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {caseFile.archivedAt && (
-              <div className="text-xs text-muted-foreground">
-                {t('archivedAt', { defaultValue: 'Archived' })}: {formatDate(caseFile.archivedAt)}
-                {caseFile.archivedByUserName && ` — ${caseFile.archivedByUserName}`}
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('basicInfoCard', { defaultValue: 'Customer basic information' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!customer.resolved && (
+            <p className="text-xs text-muted-foreground mb-3">
+              {t('customerNotResolved', {
+                defaultValue: 'The customer’s details could not be read right now; only the link is shown.',
+              })}
+            </p>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Field label={t('customerNationalId', { defaultValue: 'National ID' })}>
+              <span className="font-mono">{customer.nationalId ?? '—'}</span>
+            </Field>
+            <Field label={t('customerName', { defaultValue: 'Customer' })}>{name || '—'}</Field>
+            {father && <Field label={t('fatherName', { defaultValue: "Father's name" })}>{father}</Field>}
+            {customer.dateOfBirth && (
+              <Field label={t('dateOfBirth', { defaultValue: 'Date of birth' })}>
+                {formatDateOnly(customer.dateOfBirth)}
+              </Field>
             )}
-          </CardContent>
-        </Card>
+            {sexName && <Field label={t('customerSex', { defaultValue: 'Sex' })}>{sexName}</Field>}
+          </div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('relatedPersonsCard', { defaultValue: 'Related persons' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10 text-center">#</TableHead>
+                <TableHead>{t('relatedPersonRelation', { defaultValue: 'Relation' })}</TableHead>
+                <TableHead>{t('relatedPersonNationalId', { defaultValue: 'National ID' })}</TableHead>
+                <TableHead>{t('relatedPersonName', { defaultValue: 'Name' })}</TableHead>
+                <TableHead>{t('relatedPersonFatherName', { defaultValue: 'Father name' })}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {caseFile.relatedPersons.map((r, idx) => (
+                <TableRow key={r.id}>
+                  <TableCell className="text-center text-xs">{idx + 1}</TableCell>
+                  <TableCell className="text-xs">{relationName(r.relationTypeId, r.relationTypeCode)}</TableCell>
+                  <TableCell className="font-mono text-xs">{r.nationalId ?? '—'}</TableCell>
+                  <TableCell>{personName(r.names, languageId) || '—'}</TableCell>
+                  <TableCell className="text-xs">{fatherName(r.names, languageId) || '—'}</TableCell>
+                </TableRow>
+              ))}
+              {caseFile.relatedPersons.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-6 text-muted-foreground text-xs">
+                    {t('noRelatedPersons', { defaultValue: 'No related persons added yet.' })}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('risksCard', { defaultValue: 'Risks' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10 text-center">#</TableHead>
+                <TableHead>{t('riskType', { defaultValue: 'Risk type' })}</TableHead>
+                <TableHead>{t('riskTitle', { defaultValue: 'Title' })}</TableHead>
+                <TableHead>{t('riskAmount', { defaultValue: 'Amount (Rial)' })}</TableHead>
+                <TableHead>{t('riskDescription', { defaultValue: 'Risk description' })}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {caseFile.items.map((item, idx) => {
+                const text = pickByLanguage(item.texts, languageId);
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-center text-xs">{idx + 1}</TableCell>
+                    <TableCell className="text-xs">{riskName(item.riskTypeId, item.riskTypeCode)}</TableCell>
+                    <TableCell className="text-xs">{text?.title?.trim() || '—'}</TableCell>
+                    <TableCell className="text-xs">{formatRial(item.amount)}</TableCell>
+                    <TableCell className="text-xs whitespace-pre-wrap">{text?.description?.trim() || '—'}</TableCell>
+                  </TableRow>
+                );
+              })}
+              {caseFile.items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-6 text-muted-foreground text-xs">
+                    {t('noRisks', { defaultValue: 'No risks added yet.' })}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('additionalNotesCard', { defaultValue: 'Additional notes' })}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm whitespace-pre-wrap">{note || '—'}</p>
+        </CardContent>
+      </Card>
+
+      {canModify && (
         <Card>
           <CardHeader>
-            <CardTitle>{t('relatedPersonsCard', { defaultValue: 'Related persons' })}</CardTitle>
+            <CardTitle>{t('operationsCard', { defaultValue: 'Operations' })}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">{t('relatedPersonsHint')}</p>
-            <RelatedPersonsEditor
-              rows={relatedPersons}
-              onChange={setRelatedPersons}
-              caseId={caseFile.id}
-              disabled
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('risksCard', { defaultValue: 'Risks' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RisksEditor rows={risks} onChange={setRisks} disabled />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('additionalNotesCard', { defaultValue: 'Additional notes' })}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              rows={4}
-              value={additionalNotes}
-              onChange={(e) => setAdditionalNotes(e.target.value)}
-              disabled
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-5">
             <div className="flex flex-wrap justify-end gap-3">
-              {ownsCase && caseFile.isArchived && (
-                <Button onClick={handleUnarchive}>
-                  {t('unarchive', { defaultValue: 'Unarchive' })}
-                </Button>
-              )}
-              {canEdit && (
-                <Button onClick={handleArchive}>
-                  {t('archive', { defaultValue: 'Archive' })}
-                </Button>
-              )}
+              <Button
+                variant={caseFile.isArchived ? 'primary' : 'outline'}
+                disabled={toggle.isPending}
+                onClick={() => setConfirming(true)}
+              >
+                {caseFile.isArchived
+                  ? t('unarchive', { defaultValue: 'Unarchive' })
+                  : t('archive', { defaultValue: 'Archive' })}
+              </Button>
             </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+      )}
+
+      <AlertDialog open={confirming} onOpenChange={(open) => !open && !toggle.isPending && setConfirming(false)}>
+        <AlertDialogContent dir={isRtl ? 'rtl' : 'ltr'}>
+          <AlertDialogHeader className="text-start sm:text-start">
+            <AlertDialogTitle>
+              {caseFile.isArchived
+                ? t('confirmUnarchiveTitle', { defaultValue: 'Restore case' })
+                : t('confirmArchiveTitle', { defaultValue: 'Archive case' })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {caseFile.isArchived
+                ? t('confirmUnarchive', { defaultValue: 'Restore from archive?' })
+                : t('confirmArchive', { defaultValue: 'Archive this case?' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:space-x-0 sm:gap-2.5">
+            <AlertDialogCancel
+              disabled={toggle.isPending}
+              className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              {t('cancel', { defaultValue: 'Cancel' })}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={toggle.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                toggle.mutate();
+              }}
+            >
+              {caseFile.isArchived
+                ? t('unarchive', { defaultValue: 'Unarchive' })
+                : t('archive', { defaultValue: 'Archive' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
