@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toEnglishDigits } from '@/app/components/person/format-utils';
-import { languageIdFor, lookupName, personName } from '@/lib/customer-risk/format';
+import { languageIdFor, lookupName, personName, pickByLanguage } from '@/lib/customer-risk/format';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
 import type { CustomerLookupDto, ExternalLookupDto, PersonSummaryDto } from '@/lib/customer-risk/types';
 
@@ -79,13 +79,15 @@ export interface SexOptionsState {
  * else, and the new-person fields appear only when the directory does not
  * hold it.
  *
- * A person who IS found is shown by national id and name only; the directory
- * does not return sex or date of birth, and none is asked for, because the
- * service links the existing person and ignores any fields sent for them.
+ * A person who IS found is shown by national id and name only, unless
+ * `personLookupV2Enabled` is true: then the lookup returns their details and
+ * they are shown in the same controls as the create form, read-only. Either
+ * way nothing is edited: the service links the existing person and ignores any
+ * fields sent for them.
  *
- * `personCreateEnabled === false` means the service will refuse to create
- * anyone, so the fields are not offered at all. `undefined` means the service
- * did not say, and the fields are offered; the service still decides.
+ * The new-person fields are offered only when `personCreateEnabled` is true.
+ * False or unknown keeps them closed, so the page never offers a creation the
+ * service has not switched on.
  *
  * `lookup` is supplied by the page, because the page knows which brokerage
  * the search is asked for. `searchBlockedReason`, when set, keeps the search
@@ -97,6 +99,7 @@ export function PersonEntry({
   lookup: lookupPerson,
   sexOptions,
   personCreateEnabled,
+  personLookupV2Enabled,
   disabled,
   searchBlockedReason,
   idPrefix,
@@ -106,6 +109,7 @@ export function PersonEntry({
   lookup: (nationalId: string) => Promise<CustomerLookupDto>;
   sexOptions: SexOptionsState;
   personCreateEnabled: boolean | undefined;
+  personLookupV2Enabled: boolean | undefined;
   disabled?: boolean;
   searchBlockedReason?: string;
   idPrefix: string;
@@ -142,19 +146,13 @@ export function PersonEntry({
         lookup: {
           kind: 'error',
           message: crsErrorMessage(t, error),
-          retryable: !isCrsCode(error, 'CRS_PERSON_DUPLICATE_NATIONAL_ID'),
+          retryable:
+            !isCrsCode(error, 'CRS_PERSON_DUPLICATE_NATIONAL_ID') &&
+            !isCrsCode(error, 'CRS_PERSON_NATIONAL_ID_UNAVAILABLE'),
         },
       });
     }
   };
-
-  const sexPlaceholder = sexOptions.pending
-    ? t('loading', { defaultValue: 'Loading…' })
-    : sexOptions.unavailable
-      ? t('customerSexUnavailableV1', {
-          defaultValue: 'Unavailable — a new person cannot be filed until the list loads',
-        })
-      : t('select', { defaultValue: 'Select' });
 
   return (
     <div className="space-y-4">
@@ -213,7 +211,7 @@ export function PersonEntry({
 
       {lookup.kind === 'error' && <p className="text-sm text-destructive">{lookup.message}</p>}
 
-      {lookup.kind === 'found' && (
+      {lookup.kind === 'found' && personLookupV2Enabled !== true && (
         <div className="rounded-lg border px-4 py-3 text-sm">
           <div className="text-xs text-muted-foreground mb-1">
             {t('personFound', { defaultValue: 'Found. This existing person will be linked to the case.' })}
@@ -226,7 +224,22 @@ export function PersonEntry({
         </div>
       )}
 
-      {lookup.kind === 'notFound' && personCreateEnabled === false && (
+      {lookup.kind === 'found' && personLookupV2Enabled === true && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            {t('personFound', { defaultValue: 'Found. This existing person will be linked to the case.' })}
+          </p>
+          <PersonFields
+            idPrefix={`${idPrefix}-found`}
+            values={foundPersonValues(lookup.person, languageId)}
+            readOnly
+            disabled={disabled}
+            sexOptions={sexOptions}
+          />
+        </div>
+      )}
+
+      {lookup.kind === 'notFound' && personCreateEnabled !== true && (
         <p className="text-sm text-destructive">
           {t('errorPersonCreateNotAvailable', {
             defaultValue: 'A new person cannot be created in this version. Only people who already exist can be filed.',
@@ -234,7 +247,7 @@ export function PersonEntry({
         </p>
       )}
 
-      {lookup.kind === 'notFound' && personCreateEnabled !== false && (
+      {lookup.kind === 'notFound' && personCreateEnabled === true && (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             {t('personNotFoundNew', {
@@ -242,79 +255,146 @@ export function PersonEntry({
                 'No person with this national ID exists yet. Enter the new person’s details; they are saved in the language of this screen.',
             })}
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <Label htmlFor={`${idPrefix}-first`}>
-                {t('customerFirstName', { defaultValue: 'First name' })}
-                <span className="text-destructive ms-1">*</span>
-              </Label>
-              <Input
-                id={`${idPrefix}-first`}
-                value={draft.firstName}
-                disabled={disabled}
-                onChange={(e) => setDraft({ firstName: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`${idPrefix}-last`}>
-                {t('customerLastName', { defaultValue: 'Last name' })}
-                <span className="text-destructive ms-1">*</span>
-              </Label>
-              <Input
-                id={`${idPrefix}-last`}
-                value={draft.lastName}
-                disabled={disabled}
-                onChange={(e) => setDraft({ lastName: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`${idPrefix}-father`}>{t('fatherName', { defaultValue: "Father's name" })}</Label>
-              <Input
-                id={`${idPrefix}-father`}
-                value={draft.fatherName}
-                disabled={disabled}
-                onChange={(e) => setDraft({ fatherName: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>
-                {t('dateOfBirth', { defaultValue: 'Date of birth' })}
-                <span className="text-destructive ms-1">*</span>
-              </Label>
-              <DatePickerComponent
-                value={draft.dateOfBirth}
-                disabled={disabled}
-                onChange={(v) => setDraft({ dateOfBirth: v })}
-              />
-            </div>
-            {/* No preselected value, and the placeholder is not an option: a
-                default would be an assertion about a real person that nobody
-                made. The service refuses a new person without a sex. */}
-            <div className="space-y-1">
-              <Label>
-                {t('customerSex', { defaultValue: 'Sex' })}
-                <span className="text-destructive ms-1">*</span>
-              </Label>
-              <Select
-                value={draft.sexId ? String(draft.sexId) : undefined}
-                onValueChange={(v) => setDraft({ sexId: Number(v) })}
-                disabled={disabled || sexOptions.pending || sexOptions.unavailable}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={sexPlaceholder} />
-                </SelectTrigger>
-                <SelectContent>
-                  {sexOptions.options.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {lookupName(s.names, languageId) || String(s.id)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <PersonFields
+            idPrefix={idPrefix}
+            values={draft}
+            onChange={setDraft}
+            readOnly={false}
+            disabled={disabled}
+            sexOptions={sexOptions}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/** A plain calendar date from a service date-time, or '' when there is none. */
+function datePart(value: string | null | undefined): string {
+  const head = (value ?? '').slice(0, 10);
+  return PLAIN_DATE.test(head) ? head : '';
+}
+
+/**
+ * A found person's details, shaped like the create form's, so the same
+ * controls show them. A detail the directory did not return stays empty.
+ */
+export function foundPersonValues(person: PersonSummaryDto, languageId: number): NewPersonDraft {
+  const name = pickByLanguage(person.names, languageId);
+  return {
+    firstName: name?.firstName?.trim() ?? '',
+    lastName: name?.lastName?.trim() ?? '',
+    fatherName: name?.fatherName?.trim() ?? '',
+    dateOfBirth: datePart(person.dateOfBirth),
+    sexId: person.sexId ?? 0,
+  };
+}
+
+/**
+ * The five person fields after the national id. The same controls serve the
+ * create form and a person who already exists; `readOnly` shows the latter,
+ * which the form never edits: an existing person is linked as they are.
+ */
+function PersonFields({
+  idPrefix,
+  values,
+  onChange,
+  readOnly,
+  disabled,
+  sexOptions,
+}: {
+  idPrefix: string;
+  values: NewPersonDraft;
+  onChange?: (patch: Partial<NewPersonDraft>) => void;
+  readOnly: boolean;
+  disabled?: boolean;
+  sexOptions: SexOptionsState;
+}) {
+  const { t, i18n } = useTranslation('customer-risk');
+  const languageId = languageIdFor(i18n.language);
+  const locked = readOnly || !!disabled;
+  const set = (patch: Partial<NewPersonDraft>) => {
+    if (!readOnly) onChange?.(patch);
+  };
+  const required = readOnly ? null : <span className="text-destructive ms-1">*</span>;
+
+  const sexPlaceholder = readOnly
+    ? '—'
+    : sexOptions.pending
+      ? t('loading', { defaultValue: 'Loading…' })
+      : sexOptions.unavailable
+        ? t('customerSexUnavailableV1', {
+            defaultValue: 'Unavailable — a new person cannot be filed until the list loads',
+          })
+        : t('select', { defaultValue: 'Select' });
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-first`}>
+          {t('customerFirstName', { defaultValue: 'First name' })}
+          {required}
+        </Label>
+        <Input
+          id={`${idPrefix}-first`}
+          value={values.firstName}
+          disabled={locked}
+          onChange={(e) => set({ firstName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-last`}>
+          {t('customerLastName', { defaultValue: 'Last name' })}
+          {required}
+        </Label>
+        <Input
+          id={`${idPrefix}-last`}
+          value={values.lastName}
+          disabled={locked}
+          onChange={(e) => set({ lastName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-father`}>{t('fatherName', { defaultValue: "Father's name" })}</Label>
+        <Input
+          id={`${idPrefix}-father`}
+          value={values.fatherName}
+          disabled={locked}
+          onChange={(e) => set({ fatherName: e.target.value })}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>
+          {t('dateOfBirth', { defaultValue: 'Date of birth' })}
+          {required}
+        </Label>
+        <DatePickerComponent value={values.dateOfBirth} disabled={locked} onChange={(v) => set({ dateOfBirth: v })} />
+      </div>
+      {/* No preselected value, and the placeholder is not an option: a
+          default would be an assertion about a real person that nobody
+          made. The service refuses a new person without a sex. */}
+      <div className="space-y-1">
+        <Label>
+          {t('customerSex', { defaultValue: 'Sex' })}
+          {required}
+        </Label>
+        <Select
+          value={values.sexId ? String(values.sexId) : undefined}
+          onValueChange={(v) => set({ sexId: Number(v) })}
+          disabled={locked || sexOptions.pending || sexOptions.unavailable}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={sexPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {sexOptions.options.map((s) => (
+              <SelectItem key={s.id} value={String(s.id)}>
+                {lookupName(s.names, languageId) || String(s.id)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
@@ -347,7 +427,7 @@ export function personEntryProblem(
   }
   if (lookup.kind === 'found') return null;
 
-  if (personCreateEnabled === false) {
+  if (personCreateEnabled !== true) {
     return t('errorPersonCreateNotAvailable', {
       defaultValue: 'A new person cannot be created in this version. Only people who already exist can be filed.',
     });

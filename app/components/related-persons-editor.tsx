@@ -35,6 +35,7 @@ export function RelatedPersonsEditor({
   lookup,
   sexOptions,
   personCreateEnabled,
+  personLookupV2Enabled,
   disabled,
   searchBlockedReason,
 }: {
@@ -44,6 +45,7 @@ export function RelatedPersonsEditor({
   lookup: (nationalId: string) => Promise<CustomerLookupDto>;
   sexOptions: SexOptionsState;
   personCreateEnabled: boolean | undefined;
+  personLookupV2Enabled: boolean | undefined;
   disabled?: boolean;
   searchBlockedReason?: string;
 }) {
@@ -114,6 +116,7 @@ export function RelatedPersonsEditor({
             searchBlockedReason={searchBlockedReason}
             sexOptions={sexOptions}
             personCreateEnabled={personCreateEnabled}
+            personLookupV2Enabled={personLookupV2Enabled}
             disabled={disabled}
           />
         </div>

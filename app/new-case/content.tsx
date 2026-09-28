@@ -8,12 +8,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/hooks/useTranslation';
-import { createCase, getLookups, getSexes, listFilingBrokerages, lookupPerson } from '@/lib/customer-risk/api';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  createCase,
+  getLegalForms,
+  getLookups,
+  getSexes,
+  listFilingBrokerages,
+  lookupCompany,
+  lookupPerson,
+} from '@/lib/customer-risk/api';
+import { newCompanyRequest } from '@/lib/customer-risk/company-fields';
 import { companyName, languageIdFor } from '@/lib/customer-risk/format';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
 import {
   CrsPermission,
   INDIVIDUAL_CUSTOMER_TYPE_CODE,
+  LEGAL_CUSTOMER_TYPE_CODE,
   type CaseItemInputDto,
   type CreateCaseRequestDto,
   type LookupsDto,
@@ -25,7 +37,21 @@ import {
   type BrokerageOption,
   type BrokerageOptionsState,
 } from '../components/brokerage-picker';
-import { CrsAccessGate, CrsNotice, useBrokerageLabel } from '../components/crs-access';
+import {
+  CompanyEntry,
+  companyEntryProblem,
+  emptyCompanyEntry,
+  type CompanyEntryValue,
+  type LegalFormOptionsState,
+} from '../components/company-entry';
+import {
+  CrsAccessGate,
+  CrsNotice,
+  companyCustomersEnabled,
+  personCreateEnabled as personCreateOn,
+  personLookupV2Enabled as personLookupV2On,
+  useBrokerageLabel,
+} from '../components/crs-access';
 import { CrsPage } from '../components/crs-page';
 import { showError, showSuccess } from '../components/crs-toast';
 import {
@@ -66,9 +92,10 @@ function NewCaseForm({ me }: { me: MeDto }) {
   if (!lookups) return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
 
   const individual = lookups.customerTypes.find((c) => c.code === INDIVIDUAL_CUSTOMER_TYPE_CODE);
+  const legal = lookups.customerTypes.find((c) => c.code === LEGAL_CUSTOMER_TYPE_CODE);
   if (!individual) {
-    // v1 files individuals only, and the id to send comes from the service's
-    // own list. Without it there is nothing correct to send.
+    // The id to send comes from the service's own list, and a person customer
+    // is always possible. Without it there is nothing correct to send.
     return (
       <CrsNotice
         tone="destructive"
@@ -79,26 +106,42 @@ function NewCaseForm({ me }: { me: MeDto }) {
     );
   }
 
-  return <NewCaseFields me={me} lookups={lookups} customerTypeId={individual.id} />;
+  return (
+    <NewCaseFields me={me} lookups={lookups} individualTypeId={individual.id} legalTypeId={legal?.id} />
+  );
 }
 
 function NewCaseFields({
   me,
   lookups,
-  customerTypeId,
+  individualTypeId,
+  legalTypeId,
 }: {
   me: MeDto;
   lookups: LookupsDto;
-  customerTypeId: number;
+  individualTypeId: number;
+  /** The Legal customer type's id, when the service's list carries it. */
+  legalTypeId: number | undefined;
 }) {
   const { t, i18n } = useTranslation('customer-risk');
   const router = useRouter();
   const queryClient = useQueryClient();
   const brokerageLabel = useBrokerageLabel();
   const personCreateEnabled = me.personCreateEnabled;
+  const personLookupV2Enabled = me.personLookupV2Enabled;
   const languageId = languageIdFor(i18n.language);
 
+  // ── Person or company ─────────────────────────────────────────────────────
+  // A company customer is offered only when the service switches it on AND its
+  // list carries the Legal type to send. Otherwise the form stays exactly as it
+  // was: a person, and nothing to choose.
+  const companyOffered = companyCustomersEnabled(me) && legalTypeId !== undefined;
+  const companyTypeMissing = companyCustomersEnabled(me) && legalTypeId === undefined;
+  const [customerKind, setCustomerKind] = useState<'person' | 'company'>('person');
+  const isCompany = companyOffered && customerKind === 'company';
+
   const [customer, setCustomer] = useState<PersonEntryValue>(emptyPersonEntry);
+  const [company, setCompany] = useState<CompanyEntryValue>(emptyCompanyEntry);
   const [related, setRelated] = useState<RelatedPersonDraft[]>([]);
   const [risks, setRisks] = useState<RiskDraft[]>([]);
   const [notes, setNotes] = useState('');
@@ -134,16 +177,21 @@ function NewCaseFields({
     if (id === brokerageId) return;
     setBrokerageId(id);
     setCustomer((prev) => ({ ...prev, lookup: { kind: 'idle' } }));
+    setCompany((prev) => ({ ...prev, lookup: { kind: 'idle' } }));
     setRelated((prev) => prev.map((r) => ({ ...r, person: { ...r.person, lookup: { kind: 'idle' } } })));
   };
 
   // While any search is in flight the brokerage cannot change, so a result can
   // never arrive for a brokerage that is no longer the chosen one.
   const anySearching =
-    customer.lookup.kind === 'searching' || related.some((r) => r.person.lookup.kind === 'searching');
+    customer.lookup.kind === 'searching' ||
+    company.lookup.kind === 'searching' ||
+    related.some((r) => r.person.lookup.kind === 'searching');
 
   const lookup = (nationalId: string) =>
     lookupPerson(nationalId, choose && brokerageId ? brokerageId : undefined);
+  const lookupCompanyCustomer = (nationalId: string) =>
+    lookupCompany(nationalId, choose && brokerageId ? brokerageId : undefined);
   const searchBlockedReason =
     choose && !brokerageId
       ? t('chooseBrokerageFirst', { defaultValue: 'Choose the brokerage first.' })
@@ -153,12 +201,17 @@ function NewCaseFields({
   const nextKey = useRef(0);
   const newKey = () => `row-${++nextKey.current}`;
 
-  // The sex list is needed only once some person is not found. Three states,
-  // and they must not be conflated: pending (do not know yet), unavailable
-  // (settled with an error or with nothing — nobody can choose), and loaded.
-  const needsSexes =
-    personCreateEnabled !== false &&
-    (customer.lookup.kind === 'notFound' || related.some((r) => r.person.lookup.kind === 'notFound'));
+  // The sex list is needed once some person is to be created, or a found person
+  // holds a sex to show (only when found persons are shown with their details).
+  // Three states, and they must not be conflated: pending
+  // (do not know yet), unavailable (settled with an error or with nothing —
+  // nobody can choose), and loaded.
+  const persons = isCompany ? related.map((r) => r.person) : [customer, ...related.map((r) => r.person)];
+  const needsSexes = persons.some(
+    (p) =>
+      (personCreateOn(me) && p.lookup.kind === 'notFound') ||
+      (personLookupV2On(me) && p.lookup.kind === 'found' && p.lookup.person.sexId != null),
+  );
   const sexesQuery = useQuery({
     queryKey: ['customer-risk', 'sexes'],
     queryFn: getSexes,
@@ -169,6 +222,21 @@ function NewCaseFields({
     options: sexesQuery.data ?? [],
     pending: needsSexes && sexesQuery.isPending,
     unavailable: !!sexesQuery.error || (!!sexesQuery.data && sexesQuery.data.length === 0),
+  };
+
+  // The legal-form list, once a company is to be created or a found one shown.
+  const needsLegalForms = isCompany && (company.lookup.kind === 'notFound' || company.lookup.kind === 'found');
+  const legalFormsQuery = useQuery({
+    queryKey: ['customer-risk', 'legal-forms'],
+    queryFn: getLegalForms,
+    staleTime: 5 * 60 * 1000,
+    enabled: needsLegalForms,
+    retry: false,
+  });
+  const legalForms: LegalFormOptionsState = {
+    options: legalFormsQuery.data ?? [],
+    pending: needsLegalForms && legalFormsQuery.isPending,
+    unavailable: !!legalFormsQuery.error || (!!legalFormsQuery.data && legalFormsQuery.data.length === 0),
   };
 
   const newPersonFields = (entry: PersonEntryValue): NewPersonFieldsDto | undefined => {
@@ -188,7 +256,9 @@ function NewCaseFields({
     if (choose && !brokerageId) {
       return t('validationBrokerageRequired', { defaultValue: 'Choose the brokerage this case is filed for.' });
     }
-    const customerProblem = personEntryProblem(t, customer, personCreateEnabled, sexOptions);
+    const customerProblem = isCompany
+      ? companyEntryProblem(t, company)
+      : personEntryProblem(t, customer, personCreateEnabled, sexOptions);
     if (customerProblem) return `${t('customerCard', { defaultValue: 'Customer' })}: ${customerProblem}`;
 
     const seen = new Set<string>();
@@ -231,11 +301,18 @@ function NewCaseFields({
   const buildRequest = (): CreateCaseRequestDto => ({
     languageId,
     ...(choose && brokerageId ? { filingBrokerageId: brokerageId } : {}),
-    customerTypeId,
-    customer: {
-      nationalId: customer.nationalId,
-      ...(newPersonFields(customer) ? { newPerson: newPersonFields(customer) } : {}),
-    },
+    customerTypeId: isCompany && legalTypeId !== undefined ? legalTypeId : individualTypeId,
+    customer: isCompany
+      ? {
+          nationalId: company.nationalId,
+          // Only a company search-first did not find carries its fields; a found
+          // one is linked as it is.
+          ...(company.lookup.kind === 'notFound' ? { newCompany: newCompanyRequest(company.draft) } : {}),
+        }
+      : {
+          nationalId: customer.nationalId,
+          ...(newPersonFields(customer) ? { newPerson: newPersonFields(customer) } : {}),
+        },
     relatedPersons: related.map((r) => ({
       relationTypeId: r.relationTypeId,
       nationalId: r.person.nationalId,
@@ -313,7 +390,7 @@ function NewCaseFields({
         </CrsNotice>
       )}
 
-      {personCreateEnabled === false && (
+      {!personCreateOn(me) && (
         <CrsNotice
           title={t('errorPersonCreateNotAvailable', {
             defaultValue: 'A new person cannot be created in this version. Only people who already exist can be filed.',
@@ -326,19 +403,61 @@ function NewCaseFields({
           <CardTitle>{t('customerCard', { defaultValue: 'Customer' })}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground mb-3">
-            {t('individualsOnlyHint', { defaultValue: 'This version files individual customers only.' })}
-          </p>
-          <PersonEntry
-            idPrefix="customer"
-            value={customer}
-            onChange={setCustomer}
-            lookup={lookup}
-            searchBlockedReason={searchBlockedReason}
-            sexOptions={sexOptions}
-            personCreateEnabled={personCreateEnabled}
-            disabled={busy}
-          />
+          {companyOffered ? (
+            <RadioGroup
+              value={customerKind}
+              onValueChange={(v) => setCustomerKind(v === 'company' ? 'company' : 'person')}
+              disabled={busy || anySearching}
+              className="flex flex-wrap gap-6 mb-4"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="person" id="customer-kind-person" />
+                <Label htmlFor="customer-kind-person">
+                  {t('customerTypeIndividual', { defaultValue: 'Individual' })}
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="company" id="customer-kind-company" />
+                <Label htmlFor="customer-kind-company">
+                  {t('customerTypeLegal', { defaultValue: 'Legal entity' })}
+                </Label>
+              </div>
+            </RadioGroup>
+          ) : companyTypeMissing ? (
+            <p className="text-xs text-destructive mb-3">
+              {t('errorNoLegalType', {
+                defaultValue:
+                  'The service did not return the Legal customer type, so only individual customers can be filed.',
+              })}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mb-3">
+              {t('individualsOnlyHint', { defaultValue: 'This version files individual customers only.' })}
+            </p>
+          )}
+          {isCompany ? (
+            <CompanyEntry
+              idPrefix="customer-company"
+              value={company}
+              onChange={setCompany}
+              lookup={lookupCompanyCustomer}
+              searchBlockedReason={searchBlockedReason}
+              legalForms={legalForms}
+              disabled={busy}
+            />
+          ) : (
+            <PersonEntry
+              idPrefix="customer"
+              value={customer}
+              onChange={setCustomer}
+              lookup={lookup}
+              searchBlockedReason={searchBlockedReason}
+              sexOptions={sexOptions}
+              personCreateEnabled={personCreateEnabled}
+              personLookupV2Enabled={personLookupV2Enabled}
+              disabled={busy}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -367,6 +486,7 @@ function NewCaseFields({
             searchBlockedReason={searchBlockedReason}
             sexOptions={sexOptions}
             personCreateEnabled={personCreateEnabled}
+            personLookupV2Enabled={personLookupV2Enabled}
             disabled={busy}
           />
         </CardContent>

@@ -79,6 +79,13 @@ export interface MeDto {
    */
   personCreateEnabled?: boolean;
   /**
+   * Whether search-first returns a found person's full details (names, father's
+   * name, date of birth, sex). Until it does, a found person is shown by name and
+   * national id only, so no empty detail fields appear. Optional for the same
+   * reason as personCreateEnabled.
+   */
+  personLookupV2Enabled?: boolean;
+  /**
    * True when the caller's access covers every company and no single brokerage
    * is resolved for the caller: the filing brokerage is chosen on the case form.
    * The status string does not change for this caller; this flag is the signal.
@@ -136,8 +143,24 @@ export interface ExternalLookupDto {
   names: LookupNameDto[];
 }
 
-/** CustomerType.Code of an individual; v1 files individuals only. */
+/** CustomerType.Code of an individual (a person). */
 export const INDIVIDUAL_CUSTOMER_TYPE_CODE = 'Individual';
+
+/** CustomerType.Code of a legal entity (a company). */
+export const LEGAL_CUSTOMER_TYPE_CODE = 'Legal';
+
+/**
+ * One row of a location list (countries, provinces, cities), as the estate's
+ * shared location endpoint returns it. Ids are strings there and numbers in the
+ * CRS request.
+ */
+export interface LocationOptionDto {
+  id: string;
+  name: string;
+  nameEn?: string | null;
+  countryId?: string | null;
+  provinceId?: string | null;
+}
 
 // ─── Search-first ───────────────────────────────────────────────────────────
 
@@ -154,9 +177,31 @@ export interface PersonSummaryDto {
   names: PersonNameDto[];
 }
 
+/**
+ * A company as the directory holds it. The fields after `names` are optional:
+ * they are the company's create-form fields, added to the service's lookup so
+ * a found company can be shown in full, and a service that does not send them
+ * yet leaves them blank on screen.
+ */
+export interface CompanySummaryDto {
+  id: string;
+  nationalId: string;
+  registrationNo?: string | null;
+  isActive: boolean;
+  isDeleted: boolean;
+  names: CompanyNameDto[];
+  legalFormId?: number | null;
+  registrationDate?: string | null;
+  economicCode?: string | null;
+  registrationCountryId?: number | null;
+  registrationRegionId?: number | null;
+  registrationCityId?: number | null;
+}
+
 export interface CustomerLookupDto {
   found: boolean;
   person?: PersonSummaryDto | null;
+  company?: CompanySummaryDto | null;
 }
 
 // ─── Cases ──────────────────────────────────────────────────────────────────
@@ -276,9 +321,29 @@ export interface NewPersonFieldsDto {
   fatherName?: string;
 }
 
+/**
+ * A company not yet in the directory. Every field comes from the operator;
+ * nameEn is the only optional one and is sent only when entered.
+ */
+export interface NewCompanyFieldsDto {
+  legalFormId: number;
+  /** Gregorian YYYY-MM-DD, as the date picker gives it. */
+  registrationDate: string;
+  registrationNo: string;
+  economicCode: string;
+  registrationCountryId: number;
+  registrationRegionId: number;
+  registrationCityId: number;
+  nameFa: string;
+  nameEn?: string;
+}
+
 export interface CaseCustomerInputDto {
   nationalId: string;
+  /** Sent only for a person search-first did not find. */
   newPerson?: NewPersonFieldsDto;
+  /** Sent only for a company search-first did not find. */
+  newCompany?: NewCompanyFieldsDto;
 }
 
 export interface CaseItemInputDto {

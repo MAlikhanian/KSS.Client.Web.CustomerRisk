@@ -220,7 +220,13 @@ function CaseView({
             </p>
           )}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Field label={t('customerNationalId', { defaultValue: 'National ID' })}>
+            <Field
+              label={
+                individual
+                  ? t('customerNationalId', { defaultValue: 'National ID' })
+                  : t('customerLegalId', { defaultValue: 'Legal entity ID' })
+              }
+            >
               <span className="font-mono">{customer.nationalId ?? '—'}</span>
             </Field>
             <Field label={t('customerName', { defaultValue: 'Customer' })}>{name || '—'}</Field>

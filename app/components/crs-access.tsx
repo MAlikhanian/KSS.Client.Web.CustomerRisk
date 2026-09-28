@@ -47,6 +47,33 @@ export function hasCrsPermission(me: MeDto, permission: CrsPermissionCode): bool
 }
 
 /**
+ * Whether a company may be filed as the case's customer. Only an explicit
+ * true from the service opens that path; anything else keeps the form to
+ * persons, so a page deployed ahead of the service shows nothing half-built.
+ */
+export function companyCustomersEnabled(me: MeDto): boolean {
+  return me.legalCustomersEnabled === true;
+}
+
+/**
+ * Whether a person search-first did not find may be created from the form.
+ * Only an explicit true opens it. Finding and linking an existing person is
+ * not behind this switch.
+ */
+export function personCreateEnabled(me: MeDto): boolean {
+  return me.personCreateEnabled === true;
+}
+
+/**
+ * Whether a found person is shown with all their details in the create form's
+ * controls. Only an explicit true opens it; otherwise a found person is shown
+ * by name and national id, as before.
+ */
+export function personLookupV2Enabled(me: MeDto): boolean {
+  return me.personLookupV2Enabled === true;
+}
+
+/**
  * Whether the case screens span every brokerage for the caller (Me.allBrokerages).
  * chooseBrokerage implies it; it is read too so that a service which reports
  * only the older flag does not shut out a caller it serves.
