@@ -44,7 +44,15 @@ import {
   type MeDto,
 } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from './case-status-badge';
-import { CrsAccessGate, CrsNotice, hasCrsPermission } from './crs-access';
+import {
+  CrsAccessGate,
+  CrsNotice,
+  filesCases,
+  hasCrsPermission,
+  mayArchiveCases,
+  seesAllBrokerages,
+  useBrokerageLabel,
+} from './crs-access';
 import { showError, showSuccess } from './crs-toast';
 
 const PAGE_SIZE = 20;
@@ -71,7 +79,15 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
   const isRtl = i18n.language === 'fa' || i18n.language === 'persian';
   const languageId = languageIdFor(i18n.language);
   const queryClient = useQueryClient();
-  const canModify = hasCrsPermission(me, CrsPermission.CaseModify);
+  // Filing and archiving are separate: a caller who sees every brokerage at
+  // view level only is offered neither, although the list is open to them.
+  const canFile = hasCrsPermission(me, CrsPermission.CaseModify) && filesCases(me);
+  const canArchive = mayArchiveCases(me);
+  // A caller whose access covers every company sees every brokerage's cases,
+  // so each row says whose it is. Anyone else sees one brokerage's cases and
+  // the list stays exactly as it was.
+  const showBrokerage = seesAllBrokerages(me);
+  const brokerageLabel = useBrokerageLabel();
 
   const [input, setInput] = useState('');
   const [q, setQ] = useState('');
@@ -145,7 +161,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                 />
               </div>
             </div>
-            {!archived && canModify && (
+            {!archived && canFile && (
               <div className="ms-auto">
                 <Button asChild>
                   <Link href="/new-case">
@@ -165,6 +181,9 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                 <TableRow>
                   <TableHead className="w-10 text-center">#</TableHead>
                   <TableHead>{t('caseNumber', { defaultValue: 'Case #' })}</TableHead>
+                  {showBrokerage && (
+                    <TableHead>{t('owningBrokerage', { defaultValue: 'Owning brokerage' })}</TableHead>
+                  )}
                   <TableHead>{t('customerName', { defaultValue: 'Customer' })}</TableHead>
                   <TableHead>{t('customerNationalId', { defaultValue: 'National ID' })}</TableHead>
                   <TableHead>{t('risksCard', { defaultValue: 'Risks' })}</TableHead>
@@ -182,6 +201,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                     <TableRow key={c.id}>
                       <TableCell className="text-center text-xs">{(page - 1) * PAGE_SIZE + idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs">{c.caseNumber}</TableCell>
+                      {showBrokerage && <TableCell className="text-xs">{brokerageLabel(c.brokerage)}</TableCell>}
                       <TableCell className="font-medium">
                         {name || (
                           <span className="text-muted-foreground text-xs">
@@ -206,7 +226,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                               <Eye className="size-4" />
                             </Link>
                           </Button>
-                          {canModify && (
+                          {canArchive && (
                             <Button
                               variant="ghost"
                               mode="icon"
@@ -228,7 +248,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                 })}
                 {items.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={archived ? 10 : 9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={(archived ? 10 : 9) + (showBrokerage ? 1 : 0)} className="text-center py-8 text-muted-foreground">
                       {isPending
                         ? t('loading', { defaultValue: 'Loading…' })
                         : t('searchNoResults', { defaultValue: 'No case files match these filters.' })}

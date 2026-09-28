@@ -18,6 +18,7 @@ import type {
   CreateCaseRequestDto,
   CustomerLookupDto,
   ExternalLookupDto,
+  FilingBrokerageDto,
   LookupsDto,
   MeDto,
   PagedResultDto,
@@ -93,9 +94,19 @@ export const getLookups = () => http<LookupsDto>('GET', '/lookups');
 
 export const getSexes = () => http<ExternalLookupDto[]>('GET', '/lookups/sexes');
 
-/** Search-first. The national id travels in the body, never the URL. */
-export const lookupPerson = (nationalId: string) =>
-  http<CustomerLookupDto>('POST', '/customer/person', { nationalId });
+/**
+ * Search-first. The national id travels in the body, never the URL. The
+ * brokerage is passed only by a caller who chose it on the form.
+ */
+export const lookupPerson = (nationalId: string, filingBrokerageId?: string) =>
+  http<CustomerLookupDto>(
+    'POST',
+    '/customer/person',
+    filingBrokerageId ? { nationalId, filingBrokerageId } : { nationalId },
+  );
+
+/** The brokerages a caller who covers every company may file for. Refused for anyone else. */
+export const listFilingBrokerages = () => http<FilingBrokerageDto[]>('GET', '/filing-brokerages');
 
 /** The filing brokerage's own cases. A POST because `q` may be a national id. */
 export const listCases = (request: CaseListRequest) =>

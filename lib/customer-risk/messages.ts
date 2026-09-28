@@ -11,7 +11,18 @@ import { CrsApiError } from './api';
 const MESSAGES: Record<string, [key: string, english: string]> = {
   CRS_NO_PERSON: ['meNoPerson', 'Your sign-in is not linked to a person record, so the system cannot tell which brokerage you file for. Ask your administrator to link your account to a person.'],
   CRS_NO_FILING_BROKERAGE: ['meNoFilingBrokerage', 'You have no access to an active brokerage, so you cannot file or view risk cases. Ask your administrator for access to your brokerage.'],
-  CRS_ESTATE_WIDE_NO_FILING_BROKERAGE: ['meEstateWide', 'Your access covers every company, but a case is filed for one brokerage and you have no brokerage of your own. Ask your administrator for access to the brokerage you file for.'],
+  // As an ERROR this code reaches this zone only from the case form, when no
+  // brokerage was sent by a caller who must choose one. The service also answers
+  // it to a caller who sees every brokerage at view level only, on filing and on
+  // archive/unarchive; the zone never offers those actions to that caller
+  // (filesCases, mayArchiveCases), which is what keeps this sentence off them.
+  // The standing text for the same status (meEstateWide) is still what
+  // CrsStanding shows when an older service reports the status without either
+  // flag.
+  CRS_ESTATE_WIDE_NO_FILING_BROKERAGE: ['validationBrokerageRequired', 'Choose the brokerage this case is filed for.'],
+  CRS_FILING_BROKERAGE_NOT_ELIGIBLE: ['errorFilingBrokerageNotEligible', "The selected brokerage can't be used for filing. Choose another brokerage from the list."],
+  CRS_FILING_BROKERAGE_MISMATCH: ['errorFilingBrokerageMismatch', 'Your account files cases for a different brokerage. You can only file for your own brokerage.'],
+  CRS_BROKERAGE_CHOICE_NOT_AVAILABLE: ['errorBrokerageChoiceNotAvailable', 'Choosing a brokerage is only available to users with access to all companies.'],
   CRS_AMBIGUOUS_FILING_BROKERAGE: ['meAmbiguous', 'You have access to more than one brokerage, and the system will not choose one for you. Ask your administrator to leave you with access only to the brokerage you file for.'],
   CRS_NOT_ENABLED: ['meNotEnabled', 'Customer risk is not enabled for your account. Ask your administrator for access.'],
   CRS_NO_ACTIVE_COMPANY: ['errorNoActiveCompany', 'No active company is selected. Choose a company from the company menu and try again.'],

@@ -78,6 +78,34 @@ export interface MeDto {
    * means "not reported", which is not the same as false.
    */
   personCreateEnabled?: boolean;
+  /**
+   * True when the caller's access covers every company and no single brokerage
+   * is resolved for the caller: the filing brokerage is chosen on the case form.
+   * The status string does not change for this caller; this flag is the signal.
+   * Absent (an older service) is treated as false.
+   */
+  chooseBrokerage?: boolean;
+  /**
+   * True when the caller's access covers every company, at view or edit level,
+   * and no single brokerage is resolved for the caller: the case list, the case
+   * detail and the overview span every brokerage. True whenever chooseBrokerage
+   * is true; a view-level caller has this without the picker. Absent (an older
+   * service) is treated as false.
+   */
+  allBrokerages?: boolean;
+  /**
+   * For a caller with allBrokerages: whether archive and unarchive are offered
+   * (the access covering every company is at edit level). Kept apart from
+   * chooseBrokerage on purpose, so that filing and archiving can change
+   * independently; never infer one from the other. Absent is treated as false.
+   */
+  archiveAllBrokerages?: boolean;
+}
+
+/** A brokerage a caller who covers every company may file for. Language 0 = one name for both languages. */
+export interface FilingBrokerageDto {
+  id: string;
+  names: CompanyNameDto[];
 }
 
 // ─── Lookups ────────────────────────────────────────────────────────────────
@@ -160,6 +188,13 @@ export interface CaseCustomerDto {
 export interface CaseSummaryDto {
   id: string;
   caseNumber: string;
+  /**
+   * The brokerage the case is filed for. Shown only to a caller whose access
+   * covers every company; to anyone else every case is their own brokerage's.
+   * Optional because an older service does not send it; resolved false means no
+   * name could be read, which is display only.
+   */
+  brokerage?: BrokerageRefDto;
   customer: CaseCustomerDto;
   riskTypeCodes: string[];
   relatedPersonCount: number;
@@ -202,6 +237,13 @@ export interface CaseNoteDto {
 export interface CaseDetailDto {
   id: string;
   caseNumber: string;
+  /**
+   * The brokerage the case is filed for. Shown only to a caller whose access
+   * covers every company; to anyone else every case is their own brokerage's.
+   * Optional because an older service does not send it; resolved false means no
+   * name could be read, which is display only.
+   */
+  brokerage?: BrokerageRefDto;
   caseJalaliYear: number;
   caseJalaliMonth: number;
   caseSequence: number;
@@ -255,6 +297,12 @@ export interface RelatedPersonInputDto {
 export interface CreateCaseRequestDto {
   /** The language the text was entered in; it is stored in that language only. */
   languageId: number;
+  /**
+   * Sent ONLY by a caller who chooses the brokerage (Me.chooseBrokerage). A
+   * caller tied to one brokerage sends nothing: the service derives it, and
+   * refuses a different one.
+   */
+  filingBrokerageId?: string;
   customerTypeId: number;
   customer: CaseCustomerInputDto;
   items: CaseItemInputDto[];

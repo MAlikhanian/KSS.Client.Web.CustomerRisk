@@ -10,7 +10,12 @@ import { useCurrentCompany } from '@/providers/current-company-provider';
 import { getMe } from '@/lib/customer-risk/api';
 import { companyName, languageIdFor } from '@/lib/customer-risk/format';
 import { crsErrorMessage } from '@/lib/customer-risk/messages';
-import type { BrokerageRefDto, CrsPermissionCode, MeDto } from '@/lib/customer-risk/types';
+import {
+  CrsPermission,
+  type BrokerageRefDto,
+  type CrsPermissionCode,
+  type MeDto,
+} from '@/lib/customer-risk/types';
 
 /**
  * The caller's standing in CRS, from GET /Api/Me.
@@ -39,6 +44,34 @@ export function useCrsMe() {
 /** Whether the caller holds a CRS permission, or none is required. */
 export function hasCrsPermission(me: MeDto, permission: CrsPermissionCode): boolean {
   return !me.permissionRequired || me.permissions.includes(permission);
+}
+
+/**
+ * Whether the case screens span every brokerage for the caller (Me.allBrokerages).
+ * chooseBrokerage implies it; it is read too so that a service which reports
+ * only the older flag does not shut out a caller it serves.
+ */
+export function seesAllBrokerages(me: MeDto): boolean {
+  return me.allBrokerages === true || me.chooseBrokerage === true;
+}
+
+/**
+ * Whether the caller files cases: for the brokerage the service resolved for
+ * the caller, or for one chosen on the form (Me.chooseBrokerage). A caller who
+ * sees every brokerage at view level only files nothing.
+ */
+export function filesCases(me: MeDto): boolean {
+  return me.status === 'resolved' || me.chooseBrokerage === true;
+}
+
+/**
+ * Whether archive and unarchive are offered. A caller whose case screens span
+ * every brokerage needs the separate archive flag as well; for every other
+ * caller the permission alone decides, exactly as before that flag existed.
+ */
+export function mayArchiveCases(me: MeDto): boolean {
+  if (!hasCrsPermission(me, CrsPermission.CaseModify)) return false;
+  return seesAllBrokerages(me) ? me.archiveAllBrokerages === true : true;
 }
 
 /** A brokerage's name in the UI language, or a sentence saying only its id is known. */
@@ -85,11 +118,38 @@ export function CrsNotice({
 /**
  * Explains every /Me state. `resolved` names the filing brokerage; the other
  * four say why there is none and who can change it. The page never picks a
- * brokerage: an ambiguous caller is shown the candidates, not a chooser.
+ * brokerage for a caller: an ambiguous caller is shown the candidates, not a
+ * chooser. A caller whose access covers every company is told what that access
+ * gives, whatever status it arrives with: at edit level the brokerage is chosen
+ * per case, on the new-case form; at view level the caller files nothing and
+ * archives nothing.
  */
 export function CrsStanding({ me }: { me: MeDto }) {
   const { t } = useTranslation('customer-risk');
   const label = useBrokerageLabel();
+
+  if (me.chooseBrokerage === true) {
+    return (
+      <CrsNotice
+        tone="info"
+        title={t('meChooseAll', {
+          defaultValue:
+            "Your access covers all companies: you see every brokerage's cases, and you choose the brokerage when you file a case.",
+        })}
+      />
+    );
+  }
+  if (me.allBrokerages === true) {
+    return (
+      <CrsNotice
+        tone="info"
+        title={t('meViewAll', {
+          defaultValue:
+            "Your access to all companies is for viewing only: you see every brokerage's cases, but you can't file cases, archive them or restore them from the archive.",
+        })}
+      />
+    );
+  }
 
   switch (me.status) {
     case 'resolved':
@@ -156,14 +216,28 @@ export function CrsStanding({ me }: { me: MeDto }) {
  * company, a resolved filing brokerage, and the named permission when the
  * service requires one. Every other outcome is explained in place.
  *
+ * A caller whose access covers every company (Me.allBrokerages) is admitted to
+ * the case screens too, although the status the service reports for that
+ * caller is not "resolved": those screens show every brokerage's cases. A
+ * screen that files a case (`files`) admits only a caller who can file: a
+ * resolved caller, or one who chooses the brokerage (Me.chooseBrokerage). A
+ * caller who sees every brokerage at view level only is shown their standing
+ * there instead, which says they file nothing.
+ *
+ * The CRS permission is checked separately and after this: holding the
+ * modify permission does not make a view-level caller able to file.
+ *
  * The service decides all of this again on every request; this gate only
  * keeps the page from offering what the service will refuse.
  */
 export function CrsAccessGate({
   permission,
+  files = false,
   children,
 }: {
   permission: CrsPermissionCode;
+  /** True on a screen that files a case. */
+  files?: boolean;
   children: (me: MeDto) => ReactNode;
 }) {
   const { t } = useTranslation('customer-risk');
@@ -187,7 +261,8 @@ export function CrsAccessGate({
   if (isPending || !me) {
     return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
   }
-  if (me.status !== 'resolved') {
+  const admitted = files ? filesCases(me) : me.status === 'resolved' || seesAllBrokerages(me);
+  if (!admitted) {
     return <CrsStanding me={me} />;
   }
   if (!hasCrsPermission(me, permission)) {

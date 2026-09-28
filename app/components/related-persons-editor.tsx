@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { useTranslation } from '@/hooks/useTranslation';
 import { languageIdFor, lookupName } from '@/lib/customer-risk/format';
-import type { LookupItemDto } from '@/lib/customer-risk/types';
+import type { CustomerLookupDto, LookupItemDto } from '@/lib/customer-risk/types';
 import { PersonEntry, type PersonEntryValue, type SexOptionsState } from './person-entry';
 
 export interface RelatedPersonDraft {
@@ -32,16 +32,20 @@ export function RelatedPersonsEditor({
   rows,
   setRows,
   relationTypes,
+  lookup,
   sexOptions,
   personCreateEnabled,
   disabled,
+  searchBlockedReason,
 }: {
   rows: RelatedPersonDraft[];
   setRows: (update: (prev: RelatedPersonDraft[]) => RelatedPersonDraft[]) => void;
   relationTypes: LookupItemDto[];
+  lookup: (nationalId: string) => Promise<CustomerLookupDto>;
   sexOptions: SexOptionsState;
   personCreateEnabled: boolean | undefined;
   disabled?: boolean;
+  searchBlockedReason?: string;
 }) {
   const { t, i18n } = useTranslation('customer-risk');
   const languageId = languageIdFor(i18n.language);
@@ -106,6 +110,8 @@ export function RelatedPersonsEditor({
             idPrefix={`related-${row.key}`}
             value={row.person}
             onChange={(next) => patch(row.key, { person: next })}
+            lookup={lookup}
+            searchBlockedReason={searchBlockedReason}
             sexOptions={sexOptions}
             personCreateEnabled={personCreateEnabled}
             disabled={disabled}

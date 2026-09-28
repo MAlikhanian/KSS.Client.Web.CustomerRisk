@@ -45,7 +45,13 @@ import {
 } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from '../../components/case-status-badge';
 import { customerDisplayName } from '../../components/case-list';
-import { CrsAccessGate, CrsNotice, hasCrsPermission } from '../../components/crs-access';
+import {
+  CrsAccessGate,
+  CrsNotice,
+  mayArchiveCases,
+  seesAllBrokerages,
+  useBrokerageLabel,
+} from '../../components/crs-access';
 import { CrsPage } from '../../components/crs-page';
 import { showError, showSuccess } from '../../components/crs-toast';
 
@@ -100,11 +106,28 @@ function CaseDetail({ id, me }: { id: string; me: MeDto }) {
     return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
   }
 
-  return <CaseView caseFile={caseFile} canModify={hasCrsPermission(me, CrsPermission.CaseModify)} />;
+  return (
+    <CaseView
+      caseFile={caseFile}
+      canArchive={mayArchiveCases(me)}
+      showBrokerage={seesAllBrokerages(me)}
+    />
+  );
 }
 
-function CaseView({ caseFile, canModify }: { caseFile: CaseDetailDto; canModify: boolean }) {
+function CaseView({
+  caseFile,
+  canArchive,
+  showBrokerage,
+}: {
+  caseFile: CaseDetailDto;
+  /** Archive and unarchive only; this page modifies nothing else. */
+  canArchive: boolean;
+  /** Only for a caller whose access covers every company; anyone else sees their own brokerage's cases only. */
+  showBrokerage: boolean;
+}) {
   const { t, i18n } = useTranslation('customer-risk');
+  const brokerageLabel = useBrokerageLabel();
   const isRtl = i18n.language === 'fa' || i18n.language === 'persian';
   const languageId = languageIdFor(i18n.language);
   const queryClient = useQueryClient();
@@ -166,6 +189,11 @@ function CaseView({ caseFile, canModify }: { caseFile: CaseDetailDto; canModify:
             <Field label={t('caseNumber', { defaultValue: 'Case #' })}>
               <span className="font-mono">{caseFile.caseNumber}</span>
             </Field>
+            {showBrokerage && (
+              <Field label={t('owningBrokerage', { defaultValue: 'Owning brokerage' })}>
+                {brokerageLabel(caseFile.brokerage)}
+              </Field>
+            )}
             <Field label={t('filterStatus', { defaultValue: 'Status' })}>
               <CaseStatusBadge archived={caseFile.isArchived} />
             </Field>
@@ -293,7 +321,7 @@ function CaseView({ caseFile, canModify }: { caseFile: CaseDetailDto; canModify:
         </CardContent>
       </Card>
 
-      {canModify && (
+      {canArchive && (
         <Card>
           <CardHeader>
             <CardTitle>{t('operationsCard', { defaultValue: 'Operations' })}</CardTitle>

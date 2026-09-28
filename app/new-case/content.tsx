@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/hooks/useTranslation';
-import { createCase, getLookups, getSexes } from '@/lib/customer-risk/api';
-import { languageIdFor } from '@/lib/customer-risk/format';
-import { crsErrorMessage } from '@/lib/customer-risk/messages';
+import { createCase, getLookups, getSexes, listFilingBrokerages, lookupPerson } from '@/lib/customer-risk/api';
+import { companyName, languageIdFor } from '@/lib/customer-risk/format';
+import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
 import {
   CrsPermission,
   INDIVIDUAL_CUSTOMER_TYPE_CODE,
@@ -20,6 +20,11 @@ import {
   type MeDto,
   type NewPersonFieldsDto,
 } from '@/lib/customer-risk/types';
+import {
+  BrokeragePicker,
+  type BrokerageOption,
+  type BrokerageOptionsState,
+} from '../components/brokerage-picker';
 import { CrsAccessGate, CrsNotice, useBrokerageLabel } from '../components/crs-access';
 import { CrsPage } from '../components/crs-page';
 import { showError, showSuccess } from '../components/crs-toast';
@@ -42,7 +47,9 @@ export function NewCaseContent() {
   const { t } = useTranslation('customer-risk');
   return (
     <CrsPage title={t('pageTitleNewCase', { defaultValue: 'New Risk Case' })} description={t('descNewCase')}>
-      <CrsAccessGate permission={CrsPermission.CaseModify}>{(me) => <NewCaseForm me={me} />}</CrsAccessGate>
+      <CrsAccessGate permission={CrsPermission.CaseModify} files>
+        {(me) => <NewCaseForm me={me} />}
+      </CrsAccessGate>
     </CrsPage>
   );
 }
@@ -89,11 +96,58 @@ function NewCaseFields({
   const queryClient = useQueryClient();
   const brokerageLabel = useBrokerageLabel();
   const personCreateEnabled = me.personCreateEnabled;
+  const languageId = languageIdFor(i18n.language);
 
   const [customer, setCustomer] = useState<PersonEntryValue>(emptyPersonEntry);
   const [related, setRelated] = useState<RelatedPersonDraft[]>([]);
   const [risks, setRisks] = useState<RiskDraft[]>([]);
   const [notes, setNotes] = useState('');
+
+  // ── The filing brokerage, for a caller who chooses it ────────────────────
+  // Only when the service says so (Me.chooseBrokerage). A caller tied to one
+  // brokerage never sees the picker and never sends a brokerage: the service
+  // derives it, and would refuse a different one.
+  const choose = me.chooseBrokerage === true;
+  const [brokerageId, setBrokerageId] = useState<string | null>(null);
+
+  const brokeragesQuery = useQuery({
+    queryKey: ['customer-risk', 'filing-brokerages'],
+    queryFn: listFilingBrokerages,
+    enabled: choose,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const brokerageOptions: BrokerageOption[] = (brokeragesQuery.data ?? []).map((b) => ({
+    id: b.id,
+    label: companyName(b.names, languageId) || b.id,
+  }));
+  const brokerageState: BrokerageOptionsState = brokeragesQuery.error
+    ? { kind: 'error', message: crsErrorMessage(t, brokeragesQuery.error) }
+    : brokeragesQuery.data
+      ? { kind: 'loaded', options: brokerageOptions }
+      : { kind: 'pending' };
+
+  // A search result was given for the brokerage it was asked for. Choosing a
+  // different brokerage clears every result; the national ids and any typed
+  // new-person fields stay, and the operator searches again.
+  const chooseBrokerage = (id: string) => {
+    if (id === brokerageId) return;
+    setBrokerageId(id);
+    setCustomer((prev) => ({ ...prev, lookup: { kind: 'idle' } }));
+    setRelated((prev) => prev.map((r) => ({ ...r, person: { ...r.person, lookup: { kind: 'idle' } } })));
+  };
+
+  // While any search is in flight the brokerage cannot change, so a result can
+  // never arrive for a brokerage that is no longer the chosen one.
+  const anySearching =
+    customer.lookup.kind === 'searching' || related.some((r) => r.person.lookup.kind === 'searching');
+
+  const lookup = (nationalId: string) =>
+    lookupPerson(nationalId, choose && brokerageId ? brokerageId : undefined);
+  const searchBlockedReason =
+    choose && !brokerageId
+      ? t('chooseBrokerageFirst', { defaultValue: 'Choose the brokerage first.' })
+      : undefined;
 
   // Row keys for React only; a counter, never a generated GUID, and never sent.
   const nextKey = useRef(0);
@@ -131,6 +185,9 @@ function NewCaseFields({
 
   /** Every reason the case cannot be filed yet, checked before anything is sent. */
   const validate = (): string | null => {
+    if (choose && !brokerageId) {
+      return t('validationBrokerageRequired', { defaultValue: 'Choose the brokerage this case is filed for.' });
+    }
     const customerProblem = personEntryProblem(t, customer, personCreateEnabled, sexOptions);
     if (customerProblem) return `${t('customerCard', { defaultValue: 'Customer' })}: ${customerProblem}`;
 
@@ -172,7 +229,8 @@ function NewCaseFields({
   };
 
   const buildRequest = (): CreateCaseRequestDto => ({
-    languageId: languageIdFor(i18n.language),
+    languageId,
+    ...(choose && brokerageId ? { filingBrokerageId: brokerageId } : {}),
     customerTypeId,
     customer: {
       nationalId: customer.nationalId,
@@ -202,7 +260,14 @@ function NewCaseFields({
       );
       router.push(`/cases/${created.id}`);
     },
-    onError: (err) => showError(crsErrorMessage(t, err)),
+    onError: (err) => {
+      showError(crsErrorMessage(t, err));
+      // The chosen brokerage stopped being eligible between loading the list
+      // and saving: reload the list so it no longer offers it.
+      if (isCrsCode(err, 'CRS_FILING_BROKERAGE_NOT_ELIGIBLE')) {
+        queryClient.invalidateQueries({ queryKey: ['customer-risk', 'filing-brokerages'] });
+      }
+    },
   });
 
   const handleSave = () => {
@@ -218,17 +283,35 @@ function NewCaseFields({
 
   return (
     <>
-      <CrsNotice
-        tone="info"
-        title={t('meResolved', {
-          defaultValue: 'You file cases for: {{name}}',
-          name: brokerageLabel(me.filingBrokerage),
-        })}
-      >
-        {t('newCaseNumberHint', {
-          defaultValue: 'The case number is issued by the system when the case is saved.',
-        })}
-      </CrsNotice>
+      {choose ? (
+        <Card>
+          <CardContent className="py-5 space-y-3">
+            <BrokeragePicker
+              state={brokerageState}
+              value={brokerageId}
+              onChange={chooseBrokerage}
+              disabled={busy || anySearching}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('newCaseNumberHint', {
+                defaultValue: 'The case number is issued by the system when the case is saved.',
+              })}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <CrsNotice
+          tone="info"
+          title={t('meResolved', {
+            defaultValue: 'You file cases for: {{name}}',
+            name: brokerageLabel(me.filingBrokerage),
+          })}
+        >
+          {t('newCaseNumberHint', {
+            defaultValue: 'The case number is issued by the system when the case is saved.',
+          })}
+        </CrsNotice>
+      )}
 
       {personCreateEnabled === false && (
         <CrsNotice
@@ -250,6 +333,8 @@ function NewCaseFields({
             idPrefix="customer"
             value={customer}
             onChange={setCustomer}
+            lookup={lookup}
+            searchBlockedReason={searchBlockedReason}
             sexOptions={sexOptions}
             personCreateEnabled={personCreateEnabled}
             disabled={busy}
@@ -278,6 +363,8 @@ function NewCaseFields({
             rows={related}
             setRows={setRelated}
             relationTypes={lookups.relationTypes}
+            lookup={lookup}
+            searchBlockedReason={searchBlockedReason}
             sexOptions={sexOptions}
             personCreateEnabled={personCreateEnabled}
             disabled={busy}

@@ -14,10 +14,9 @@ import {
 } from '@/components/ui/select';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toEnglishDigits } from '@/app/components/person/format-utils';
-import { lookupPerson } from '@/lib/customer-risk/api';
 import { languageIdFor, lookupName, personName } from '@/lib/customer-risk/format';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
-import type { ExternalLookupDto, PersonSummaryDto } from '@/lib/customer-risk/types';
+import type { CustomerLookupDto, ExternalLookupDto, PersonSummaryDto } from '@/lib/customer-risk/types';
 
 export const NATIONAL_ID_LENGTH = 10;
 
@@ -87,20 +86,28 @@ export interface SexOptionsState {
  * `personCreateEnabled === false` means the service will refuse to create
  * anyone, so the fields are not offered at all. `undefined` means the service
  * did not say, and the fields are offered; the service still decides.
+ *
+ * `lookup` is supplied by the page, because the page knows which brokerage
+ * the search is asked for. `searchBlockedReason`, when set, keeps the search
+ * closed and says why (for example, no brokerage has been chosen yet).
  */
 export function PersonEntry({
   value,
   onChange,
+  lookup: lookupPerson,
   sexOptions,
   personCreateEnabled,
   disabled,
+  searchBlockedReason,
   idPrefix,
 }: {
   value: PersonEntryValue;
   onChange: (next: PersonEntryValue) => void;
+  lookup: (nationalId: string) => Promise<CustomerLookupDto>;
   sexOptions: SexOptionsState;
   personCreateEnabled: boolean | undefined;
   disabled?: boolean;
+  searchBlockedReason?: string;
   idPrefix: string;
 }) {
   const { t, i18n } = useTranslation('customer-risk');
@@ -118,7 +125,7 @@ export function PersonEntry({
   const setDraft = (patch: Partial<NewPersonDraft>) => onChange({ ...value, draft: { ...draft, ...patch } });
 
   const search = async () => {
-    if (nationalId.length !== NATIONAL_ID_LENGTH) return;
+    if (searchBlockedReason || nationalId.length !== NATIONAL_ID_LENGTH) return;
     const askedFor = nationalId;
     onChange({ ...value, lookup: { kind: 'searching' } });
     try {
@@ -178,6 +185,7 @@ export function PersonEntry({
           variant="outline"
           disabled={
             disabled ||
+            !!searchBlockedReason ||
             nationalId.length !== NATIONAL_ID_LENGTH ||
             lookup.kind === 'searching' ||
             (lookup.kind === 'error' && !lookup.retryable)
@@ -191,7 +199,11 @@ export function PersonEntry({
         </Button>
       </div>
 
-      {lookup.kind === 'idle' && (
+      {lookup.kind === 'idle' && searchBlockedReason && (
+        <p className="text-xs text-destructive">{searchBlockedReason}</p>
+      )}
+
+      {lookup.kind === 'idle' && !searchBlockedReason && (
         <p className="text-xs text-muted-foreground">
           {t('searchFirstHint', {
             defaultValue: 'Enter the 10-digit national ID and search. A person who already exists is linked as-is.',

@@ -5,7 +5,7 @@ import { NavbarMenu } from '@/partials/navbar/navbar-menu';
 import { useSettings } from '@/providers/settings-provider';
 import { Container } from '@/components/common/container';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useBrokerageLabel, useCrsMe } from './components/crs-access';
+import { filesCases, seesAllBrokerages, useBrokerageLabel, useCrsMe } from './components/crs-access';
 
 /**
  * The zone's own tabs. This version has four screens; the cross-brokerage
@@ -14,20 +14,28 @@ import { useBrokerageLabel, useCrsMe } from './components/crs-access';
  * card, because the estate sidebar (a kit-synced file this zone does not own)
  * still links to them.
  *
- * On the right, the filing brokerage the service resolved for the caller.
- * There is no brokerage chooser: the service decides, on every request.
+ * On the right, the filing brokerage the service resolved for the caller, when
+ * there is one. The navbar never chooses a brokerage: the service resolves it,
+ * or a caller who may choose picks it per case on the new-case form.
+ *
+ * New Case is left out for a caller who sees every brokerage at view level
+ * only, once /Me says so; until /Me answers, the tab is shown as before. The
+ * page itself still explains the refusal to anyone who reaches it another way.
  */
 const PageNavbar = () => {
   const { settings } = useSettings();
   const { t } = useTranslation('customer-risk');
   const { data: me } = useCrsMe();
   const brokerageLabel = useBrokerageLabel();
+  const viewOnly = !!me && seesAllBrokerages(me) && !filesCases(me);
 
   const items = [
     { title: t('navLanding', { defaultValue: 'Overview' }), path: '/customer-risk/overview' },
     { title: t('navCases', { defaultValue: 'My Cases' }), path: '/customer-risk/cases' },
     { title: t('navArchive', { defaultValue: 'Archive' }), path: '/customer-risk/archive' },
-    { title: t('navNewCase', { defaultValue: 'New Case' }), path: '/customer-risk/new-case' },
+    ...(viewOnly
+      ? []
+      : [{ title: t('navNewCase', { defaultValue: 'New Case' }), path: '/customer-risk/new-case' }]),
   ];
 
   if (settings?.layout === 'demo1') {
