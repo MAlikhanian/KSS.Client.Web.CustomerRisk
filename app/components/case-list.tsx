@@ -33,6 +33,7 @@ import {
   languageIdFor,
   lookupName,
   personName,
+  pickCompanyName,
 } from '@/lib/customer-risk/format';
 import { crsErrorMessage } from '@/lib/customer-risk/messages';
 import {
@@ -42,7 +43,6 @@ import {
   type MeDto,
 } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from './case-status-badge';
-import { CompanyCustomerName } from './company-customer-name';
 import {
   CrsAccessGate,
   CrsNotice,
@@ -202,7 +202,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                         {c.customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE ? (
                           personName(c.customer.personNames, languageId) || unavailable
                         ) : (
-                          <CompanyCustomerName customer={c.customer} languageId={languageId} fallback={unavailable} />
+                          pickCompanyName(c.customer.companyNames, languageId)?.name || unavailable
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{c.customer.nationalId ?? '—'}</TableCell>
