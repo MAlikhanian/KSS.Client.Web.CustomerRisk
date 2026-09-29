@@ -51,7 +51,6 @@ const MESSAGES: Record<string, [key: string, english: string]> = {
   // are named here: a named code always wins over the generic handling.
   CRS_COMPANY_FIELDS_REQUIRED: ['errorCompanyFieldsRequired', 'A new company needs every required field. Fill in the fields marked with *.'],
   CRS_COMPANY_FIELDS_INVALID: ['errorCompanyFieldsInvalid', 'A company field is too long or not in the expected form. Check the entries and try again.'],
-  CRS_COMPANY_INVALID_LEGAL_FORM: ['errorCompanyInvalidLegalForm', 'The selected legal form can no longer be used. Choose another one.'],
   CRS_COMPANY_REGISTRATION_NO_TAKEN: ['errorCompanyRegistrationNoTaken', 'Another company in this country is already registered under this registration number. Check the number.'],
   CRS_COMPANY_ECONOMIC_CODE_TAKEN: ['errorCompanyEconomicCodeTaken', 'Another company in this country already holds this economic code. Check the code.'],
   CRS_COMPANY_FIELDS_NOT_LATIN: ['errorCompanyFieldsNotLatin', 'Registration number and economic code accept only English letters, digits and symbols.'],
@@ -59,7 +58,6 @@ const MESSAGES: Record<string, [key: string, english: string]> = {
   CRS_COMPANY_DUPLICATE_NATIONAL_ID: ['errorCompanyDuplicateNationalId', 'Two companies hold this legal entity ID, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.'],
   CRS_PERSON_NATIONAL_ID_UNAVAILABLE: ['errorPersonNationalIdUnavailable', 'This national ID belongs to a person record that cannot be used, for example a deleted one. This cannot be fixed from this screen; report it to your administrator.'],
   CRS_INVALID_CUSTOMER_TYPE: ['errorInvalidCustomerType', 'The customer type is not valid. Reload the page and try again.'],
-  CRS_LOCATIONS_UNAVAILABLE: ['companyLocationUnavailable', 'The list could not be loaded'],
   Unauthorized: ['errorSessionExpired', 'Your session has ended. Sign in again.'],
 };
 

@@ -149,19 +149,6 @@ export const INDIVIDUAL_CUSTOMER_TYPE_CODE = 'Individual';
 /** CustomerType.Code of a legal entity (a company). */
 export const LEGAL_CUSTOMER_TYPE_CODE = 'Legal';
 
-/**
- * One row of a location list (countries, provinces, cities), as the estate's
- * shared location endpoint returns it. Ids are strings there and numbers in the
- * CRS request.
- */
-export interface LocationOptionDto {
-  id: string;
-  name: string;
-  nameEn?: string | null;
-  countryId?: string | null;
-  provinceId?: string | null;
-}
-
 // ─── Search-first ───────────────────────────────────────────────────────────
 
 /**
@@ -190,12 +177,8 @@ export interface CompanySummaryDto {
   isActive: boolean;
   isDeleted: boolean;
   names: CompanyNameDto[];
-  legalFormId?: number | null;
   registrationDate?: string | null;
   economicCode?: string | null;
-  registrationCountryId?: number | null;
-  registrationRegionId?: number | null;
-  registrationCityId?: number | null;
 }
 
 export interface CustomerLookupDto {
@@ -322,20 +305,16 @@ export interface NewPersonFieldsDto {
 }
 
 /**
- * A company not yet in the directory. Every field comes from the operator;
- * nameEn is the only optional one and is sent only when entered.
+ * A company not yet in the directory. Every field comes from the operator and
+ * every one is required. The name is in the request's languageId; the service
+ * sets the legal form and the place of registration itself.
  */
 export interface NewCompanyFieldsDto {
-  legalFormId: number;
+  name: string;
   /** Gregorian YYYY-MM-DD, as the date picker gives it. */
   registrationDate: string;
   registrationNo: string;
   economicCode: string;
-  registrationCountryId: number;
-  registrationRegionId: number;
-  registrationCityId: number;
-  nameFa: string;
-  nameEn?: string;
 }
 
 export interface CaseCustomerInputDto {

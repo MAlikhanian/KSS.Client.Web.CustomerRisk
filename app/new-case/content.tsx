@@ -12,7 +12,6 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   createCase,
-  getLegalForms,
   getLookups,
   getSexes,
   listFilingBrokerages,
@@ -42,7 +41,6 @@ import {
   companyEntryProblem,
   emptyCompanyEntry,
   type CompanyEntryValue,
-  type LegalFormOptionsState,
 } from '../components/company-entry';
 import {
   CrsAccessGate,
@@ -224,21 +222,6 @@ function NewCaseFields({
     unavailable: !!sexesQuery.error || (!!sexesQuery.data && sexesQuery.data.length === 0),
   };
 
-  // The legal-form list, once a company is to be created or a found one shown.
-  const needsLegalForms = isCompany && (company.lookup.kind === 'notFound' || company.lookup.kind === 'found');
-  const legalFormsQuery = useQuery({
-    queryKey: ['customer-risk', 'legal-forms'],
-    queryFn: getLegalForms,
-    staleTime: 5 * 60 * 1000,
-    enabled: needsLegalForms,
-    retry: false,
-  });
-  const legalForms: LegalFormOptionsState = {
-    options: legalFormsQuery.data ?? [],
-    pending: needsLegalForms && legalFormsQuery.isPending,
-    unavailable: !!legalFormsQuery.error || (!!legalFormsQuery.data && legalFormsQuery.data.length === 0),
-  };
-
   const newPersonFields = (entry: PersonEntryValue): NewPersonFieldsDto | undefined => {
     if (entry.lookup.kind !== 'notFound') return undefined;
     const d = entry.draft;
@@ -257,7 +240,7 @@ function NewCaseFields({
       return t('validationBrokerageRequired', { defaultValue: 'Choose the brokerage this case is filed for.' });
     }
     const customerProblem = isCompany
-      ? companyEntryProblem(t, company)
+      ? companyEntryProblem(t, company, languageId)
       : personEntryProblem(t, customer, personCreateEnabled, sexOptions);
     if (customerProblem) return `${t('customerCard', { defaultValue: 'Customer' })}: ${customerProblem}`;
 
@@ -442,7 +425,6 @@ function NewCaseFields({
               onChange={setCompany}
               lookup={lookupCompanyCustomer}
               searchBlockedReason={searchBlockedReason}
-              legalForms={legalForms}
               disabled={busy}
             />
           ) : (

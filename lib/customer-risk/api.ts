@@ -1,6 +1,5 @@
 /**
- * Browser-side calls to this zone's own CRS routes (app/api/customer-risk/**),
- * plus one call to the estate's shared location endpoint (see getLocations).
+ * Browser-side calls to this zone's own CRS routes (app/api/customer-risk/**).
  *
  * The paths MUST carry the basePath. The Shell's middleware routes on the first
  * path segment, so a root-relative '/api/customer-risk/...' has segment "api",
@@ -20,7 +19,6 @@ import type {
   CustomerLookupDto,
   ExternalLookupDto,
   FilingBrokerageDto,
-  LocationOptionDto,
   LookupsDto,
   MeDto,
   PagedResultDto,
@@ -55,18 +53,9 @@ export class CrsApiError extends Error {
 }
 
 async function http<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-  return send<T>(method, `${BASE}${path}`, body);
-}
-
-async function send<T>(
-  method: 'GET' | 'POST',
-  url: string,
-  body?: unknown,
-  signOutOnUnauthorized = true,
-): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(`${BASE}${path}`, {
       method,
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -78,7 +67,7 @@ async function send<T>(
     throw new CrsApiError(0, timedOut ? ClientFailure.Timeout : ClientFailure.Network);
   }
 
-  if (res.status === 401 && signOutOnUnauthorized && typeof window !== 'undefined') {
+  if (res.status === 401 && typeof window !== 'undefined') {
     const { signOutToTenant } = await import('@/lib/auth-signout');
     signOutToTenant();
   }
@@ -126,37 +115,6 @@ export const lookupCompany = (nationalId: string, filingBrokerageId?: string) =>
     '/customer/company',
     filingBrokerageId ? { nationalId, filingBrokerageId } : { nationalId },
   );
-
-/** The legal forms a new company is filed with, from the Company service through CRS. */
-export const getLegalForms = () => http<ExternalLookupDto[]>('GET', '/lookups/legal-forms');
-
-/** Code for a location list that could not be loaded, whatever the reason. */
-export const LOCATIONS_UNAVAILABLE = 'CRS_LOCATIONS_UNAVAILABLE';
-
-/**
- * A location list (countries, the provinces of a country, the cities of a
- * province). Deliberately ROOT-relative, unlike every other call here: it is the
- * estate's shared, session-gated location endpoint on the same origin, used by
- * the other zones' registration forms too. It carries no customer data.
- *
- * A refusal here never signs the user out: the endpoint belongs to another app,
- * so its 401 is not this zone's answer about the session. A session that has
- * really ended is caught by this zone's own next call.
- */
-export async function getLocations(
-  type: 'countries' | 'provinces' | 'cities',
-  parentId?: string,
-): Promise<LocationOptionDto[]> {
-  const params = new URLSearchParams({ type });
-  if (type === 'provinces' && parentId) params.set('countryId', parentId);
-  if (type === 'cities' && parentId) params.set('provinceId', parentId);
-  try {
-    return await send<LocationOptionDto[]>('GET', `/api/locations?${params.toString()}`, undefined, false);
-  } catch (error) {
-    const status = error instanceof CrsApiError ? error.status : 0;
-    throw new CrsApiError(status, LOCATIONS_UNAVAILABLE);
-  }
-}
 
 /** The brokerages a caller who covers every company may file for. Refused for anyone else. */
 export const listFilingBrokerages = () => http<FilingBrokerageDto[]>('GET', '/filing-brokerages');

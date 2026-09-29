@@ -1,24 +1,16 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DatePickerComponent } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toEnglishDigits } from '@/app/components/person/format-utils';
-import { getLocations } from '@/lib/customer-risk/api';
 import {
   COMPANY_FIELDS,
   COMPANY_NATIONAL_ID_LENGTH,
+  companyFieldLabel,
   emptyCompanyFields,
   firstCompanyFieldProblem,
   foundCompanyValues,
@@ -26,10 +18,10 @@ import {
   type CompanyFieldKey,
   type CompanyFieldValues,
 } from '@/lib/customer-risk/company-fields';
-import { ENGLISH_LANGUAGE_ID } from '@/lib/customer-risk/types';
-import { languageIdFor, lookupName } from '@/lib/customer-risk/format';
+import { PERSIAN_LANGUAGE_ID } from '@/lib/customer-risk/types';
+import { languageIdFor } from '@/lib/customer-risk/format';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
-import type { CompanySummaryDto, CustomerLookupDto, ExternalLookupDto } from '@/lib/customer-risk/types';
+import type { CompanySummaryDto, CustomerLookupDto } from '@/lib/customer-risk/types';
 
 /** What search-first has said about the company national id in the box. */
 export type CompanyLookup =
@@ -53,14 +45,6 @@ export function emptyCompanyEntry(): CompanyEntryValue {
   return { nationalId: '', lookup: { kind: 'idle' }, draft: emptyCompanyFields() };
 }
 
-/** The legal-form list's state, as the page loaded it. */
-export interface LegalFormOptionsState {
-  options: ExternalLookupDto[];
-  pending: boolean;
-  /** Settled with an error, or settled with no rows: either way nobody can choose. */
-  unavailable: boolean;
-}
-
 /** Refusals that searching again cannot change. */
 const TERMINAL_LOOKUP_CODES = ['CRS_COMPANY_DUPLICATE_NATIONAL_ID', 'CRS_COMPANY_NATIONAL_ID_UNAVAILABLE'];
 
@@ -70,7 +54,8 @@ const TERMINAL_LOOKUP_CODES = ['CRS_COMPANY_DUPLICATE_NATIONAL_ID', 'CRS_COMPANY
  *
  * A company that IS found is shown in the same controls as the create form,
  * read-only; the form never edits it. A company that is not found is entered
- * in full: every field in COMPANY_FIELDS, with nothing defaulted.
+ * with every field in COMPANY_FIELDS, nothing defaulted, and its name in the
+ * language of the screen.
  *
  * The lookup is deliberately not limited to the active company: a national id
  * held anywhere in the directory returns that company, and the service decides
@@ -81,7 +66,6 @@ export function CompanyEntry({
   value,
   onChange,
   lookup: lookupCompany,
-  legalForms,
   disabled,
   searchBlockedReason,
   idPrefix,
@@ -89,13 +73,14 @@ export function CompanyEntry({
   value: CompanyEntryValue;
   onChange: (next: CompanyEntryValue) => void;
   lookup: (nationalId: string) => Promise<CustomerLookupDto>;
-  legalForms: LegalFormOptionsState;
   disabled?: boolean;
   searchBlockedReason?: string;
   idPrefix: string;
 }) {
-  const { t } = useTranslation('customer-risk');
+  const { t, i18n } = useTranslation('customer-risk');
+  const screenLanguageId = languageIdFor(i18n.language);
   const { nationalId, lookup, draft } = value;
+  const found = lookup.kind === 'found' ? foundCompanyValues(lookup.company, screenLanguageId) : null;
 
   const setNationalId = (raw: string) => {
     const next = toEnglishDigits(raw).replace(/[^0-9]/g, '').slice(0, COMPANY_NATIONAL_ID_LENGTH);
@@ -188,17 +173,17 @@ export function CompanyEntry({
 
       {lookup.kind === 'error' && <p className="text-sm text-destructive">{lookup.message}</p>}
 
-      {lookup.kind === 'found' && (
+      {found && (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             {t('companyFound', { defaultValue: 'Found. This existing company will be linked to the case.' })}
           </p>
           <CompanyFields
             idPrefix={`${idPrefix}-found`}
-            values={foundCompanyValues(lookup.company)}
+            values={found.values}
+            nameLanguageId={found.nameLanguageId}
             readOnly
             disabled={disabled}
-            legalForms={legalForms}
           />
         </div>
       )}
@@ -213,10 +198,10 @@ export function CompanyEntry({
           <CompanyFields
             idPrefix={idPrefix}
             values={draft}
+            nameLanguageId={screenLanguageId}
             onChange={setDraft}
             readOnly={false}
             disabled={disabled}
-            legalForms={legalForms}
           />
         </div>
       )}
@@ -226,70 +211,47 @@ export function CompanyEntry({
 
 /**
  * Every field in COMPANY_FIELDS, in order. The same controls serve the create
- * form and a company that already exists; `readOnly` shows the latter.
+ * form and a company that already exists; `readOnly` shows the latter. The
+ * name is labelled, and written, in `nameLanguageId`.
  */
 function CompanyFields({
   idPrefix,
   values,
+  nameLanguageId,
   onChange,
   readOnly,
   disabled,
-  legalForms,
 }: {
   idPrefix: string;
   values: CompanyFieldValues;
+  nameLanguageId: number;
   onChange?: (patch: Partial<CompanyFieldValues>) => void;
   readOnly: boolean;
   disabled?: boolean;
-  legalForms: LegalFormOptionsState;
 }) {
-  const { t, i18n } = useTranslation('customer-risk');
-  const languageId = languageIdFor(i18n.language);
+  const { t } = useTranslation('customer-risk');
   const locked = readOnly || !!disabled;
 
   const set = (key: CompanyFieldKey, next: string) => {
     if (readOnly || !onChange) return;
-    // A province belongs to a country and a city to a province: changing the
-    // parent clears what depended on it rather than keeping a mismatch.
-    if (key === 'registrationCountryId') {
-      onChange({ registrationCountryId: next, registrationRegionId: '', registrationCityId: '' });
-    } else if (key === 'registrationRegionId') {
-      onChange({ registrationRegionId: next, registrationCityId: '' });
-    } else {
-      onChange({ [key]: next } as Partial<CompanyFieldValues>);
-    }
+    onChange({ [key]: next } as Partial<CompanyFieldValues>);
   };
 
-  const label = (field: CompanyFieldDef, htmlFor?: string) => (
-    <Label htmlFor={htmlFor}>
-      {t(field.i18nKey, { defaultValue: field.en })}
-      {field.required && !readOnly && <span className="text-destructive ms-1">*</span>}
-    </Label>
-  );
-
-  const placeholder = readOnly ? '—' : t('select', { defaultValue: 'Select' });
+  const label = (field: CompanyFieldDef, htmlFor?: string) => {
+    const text = companyFieldLabel(field, nameLanguageId);
+    return (
+      <Label htmlFor={htmlFor}>
+        {t(text.i18nKey, { defaultValue: text.en })}
+        {field.required && !readOnly && <span className="text-destructive ms-1">*</span>}
+      </Label>
+    );
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {COMPANY_FIELDS.map((field) => {
         const id = `${idPrefix}-${field.key}`;
         const current = values[field.key];
-
-        if (field.kind === 'text') {
-          return (
-            <div key={field.key} className="space-y-1">
-              {label(field, id)}
-              <Input
-                id={id}
-                dir={field.rtl ? 'rtl' : undefined}
-                maxLength={field.maxLength}
-                value={current}
-                disabled={locked}
-                onChange={(e) => set(field.key, e.target.value)}
-              />
-            </div>
-          );
-        }
 
         if (field.kind === 'date') {
           return (
@@ -300,125 +262,21 @@ function CompanyFields({
           );
         }
 
-        if (field.kind === 'legalForm') {
-          const legalPlaceholder = readOnly
-            ? '—'
-            : legalForms.pending
-              ? t('loading', { defaultValue: 'Loading…' })
-              : legalForms.unavailable
-                ? t('companyLegalFormUnavailable', {
-                    defaultValue: 'Unavailable — a new company cannot be filed until the list loads',
-                  })
-                : placeholder;
-          return (
-            <div key={field.key} className="space-y-1">
-              {label(field)}
-              <Select
-                value={current || undefined}
-                onValueChange={(v) => set(field.key, v)}
-                disabled={locked || legalForms.pending || legalForms.unavailable}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={legalPlaceholder} />
-                </SelectTrigger>
-                <SelectContent>
-                  {legalForms.options.map((f) => (
-                    <SelectItem key={f.id} value={String(f.id)}>
-                      {lookupName(f.names, languageId) || String(f.id)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          );
-        }
-
-        const parentId =
-          field.kind === 'region'
-            ? values.registrationCountryId
-            : field.kind === 'city'
-              ? values.registrationRegionId
-              : undefined;
         return (
           <div key={field.key} className="space-y-1">
-            {label(field)}
-            <LocationSelect
-              kind={field.kind}
-              parentId={parentId}
+            {label(field, id)}
+            <Input
+              id={id}
+              dir={field.kind === 'name' ? (nameLanguageId === PERSIAN_LANGUAGE_ID ? 'rtl' : 'ltr') : undefined}
+              maxLength={field.maxLength}
               value={current}
-              onChange={(v) => set(field.key, v)}
-              locked={locked}
-              readOnly={readOnly}
-              english={languageId === ENGLISH_LANGUAGE_ID}
+              disabled={locked}
+              onChange={(e) => set(field.key, e.target.value)}
             />
           </div>
         );
       })}
     </div>
-  );
-}
-
-/**
- * One level of the location lists. A province list waits for a country and a
- * city list for a province. A read-only field still loads its list, only to
- * show the chosen entry's name.
- */
-function LocationSelect({
-  kind,
-  parentId,
-  value,
-  onChange,
-  locked,
-  readOnly,
-  english,
-}: {
-  kind: 'country' | 'region' | 'city';
-  parentId?: string;
-  value: string;
-  onChange: (value: string) => void;
-  locked: boolean;
-  readOnly: boolean;
-  english: boolean;
-}) {
-  const { t } = useTranslation('customer-risk');
-  const type = kind === 'country' ? 'countries' : kind === 'region' ? 'provinces' : 'cities';
-  const needsParent = kind !== 'country';
-  const ready = !needsParent || !!parentId;
-  const wanted = readOnly ? !!value && ready : ready;
-
-  const query = useQuery({
-    queryKey: ['customer-risk', 'locations', type, parentId ?? ''],
-    queryFn: () => getLocations(type, parentId),
-    enabled: wanted,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  });
-
-  const options = query.data ?? [];
-  const failed = !!query.error;
-  const placeholder = readOnly
-    ? '—'
-    : !ready
-      ? t('companyLocationParentFirst', { defaultValue: 'Choose the previous level first' })
-      : query.isPending
-        ? t('loading', { defaultValue: 'Loading…' })
-        : failed
-          ? t('companyLocationUnavailable', { defaultValue: 'The list could not be loaded' })
-          : t('select', { defaultValue: 'Select' });
-
-  return (
-    <Select value={value || undefined} onValueChange={onChange} disabled={locked || !ready || query.isPending || failed}>
-      <SelectTrigger>
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((o) => (
-          <SelectItem key={o.id} value={String(o.id)}>
-            {(english ? o.nameEn?.trim() : '') || o.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 
@@ -430,6 +288,7 @@ function LocationSelect({
 export function companyEntryProblem(
   t: (key: string, options: Record<string, unknown> & { defaultValue: string }) => string,
   value: CompanyEntryValue,
+  screenLanguageId: number,
 ): string | null {
   const { lookup, draft } = value;
   if (value.nationalId.length !== COMPANY_NATIONAL_ID_LENGTH) {
@@ -450,7 +309,8 @@ export function companyEntryProblem(
 
   const problem = firstCompanyFieldProblem(draft);
   if (!problem) return null;
-  const field = t(problem.field.i18nKey, { defaultValue: problem.field.en });
+  const text = companyFieldLabel(problem.field, screenLanguageId);
+  const field = t(text.i18nKey, { defaultValue: text.en });
   if (problem.problem === 'date') {
     return t('validationCompanyDate', { defaultValue: 'Enter the registration date again using the calendar.' });
   }
