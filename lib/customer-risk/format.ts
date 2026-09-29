@@ -100,6 +100,20 @@ export function companyName(names: readonly CompanyNameDto[] | null | undefined,
   return pickByLanguage(names, languageId)?.name?.trim() ?? '';
 }
 
+/**
+ * A company customer's name for the screen: the one in the screen's language,
+ * else the one it has. A company may hold a single name, in either language;
+ * an entry with no text is not a name. Undefined when there is none at all.
+ */
+export function pickCompanyName(
+  names: readonly CompanyNameDto[] | null | undefined,
+  languageId: number,
+): { name: string; languageId: number } | undefined {
+  const named = (names ?? []).filter((n) => n.name?.trim());
+  const picked = pickByLanguage(named, languageId);
+  return picked ? { name: picked.name.trim(), languageId: picked.languageId } : undefined;
+}
+
 /** "First Last" in the chosen language, or '' when no name is held. */
 export function personName(names: readonly PersonNameDto[] | null | undefined, languageId: number): string {
   const n = pickByLanguage(names, languageId);

@@ -44,7 +44,7 @@ import {
   type MeDto,
 } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from '../../components/case-status-badge';
-import { customerDisplayName } from '../../components/case-list';
+import { CompanyCustomerName } from '../../components/company-customer-name';
 import {
   CrsAccessGate,
   CrsNotice,
@@ -166,7 +166,7 @@ function CaseView({
     onSettled: () => setConfirming(false),
   });
 
-  const name = customerDisplayName(customer, languageId);
+  const name = individual ? personName(customer.personNames, languageId) : '';
   const father = individual ? fatherName(customer.personNames, languageId) : '';
   const sexName =
     customer.sexId != null
@@ -229,7 +229,13 @@ function CaseView({
             >
               <span className="font-mono">{customer.nationalId ?? '—'}</span>
             </Field>
-            <Field label={t('customerName', { defaultValue: 'Customer' })}>{name || '—'}</Field>
+            <Field label={t('customerName', { defaultValue: 'Customer' })}>
+              {individual ? (
+                name || '—'
+              ) : (
+                <CompanyCustomerName customer={customer} languageId={languageId} fallback="—" />
+              )}
+            </Field>
             {father && <Field label={t('fatherName', { defaultValue: "Father's name" })}>{father}</Field>}
             {customer.dateOfBirth && (
               <Field label={t('dateOfBirth', { defaultValue: 'Date of birth' })}>

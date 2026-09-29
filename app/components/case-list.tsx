@@ -29,7 +29,6 @@ import {
 import { useTranslation } from '@/hooks/useTranslation';
 import { archiveCase, getLookups, listCases, unarchiveCase } from '@/lib/customer-risk/api';
 import {
-  companyName,
   formatDate,
   languageIdFor,
   lookupName,
@@ -39,11 +38,11 @@ import { crsErrorMessage } from '@/lib/customer-risk/messages';
 import {
   CrsPermission,
   INDIVIDUAL_CUSTOMER_TYPE_CODE,
-  type CaseCustomerDto,
   type CaseSummaryDto,
   type MeDto,
 } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from './case-status-badge';
+import { CompanyCustomerName } from './company-customer-name';
 import {
   CrsAccessGate,
   CrsNotice,
@@ -57,13 +56,6 @@ import { showError, showSuccess } from './crs-toast';
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 400;
-
-/** The customer's display name, or '' when the directory could not be read. */
-export function customerDisplayName(customer: CaseCustomerDto, languageId: number): string {
-  return customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE
-    ? personName(customer.personNames, languageId)
-    : companyName(customer.companyNames, languageId);
-}
 
 /**
  * The filing brokerage's own cases, live or archived. Paged and searched by
@@ -196,17 +188,21 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
               </TableHeader>
               <TableBody>
                 {items.map((c, idx) => {
-                  const name = customerDisplayName(c.customer, languageId);
+                  const unavailable = (
+                    <span className="text-muted-foreground text-xs">
+                      {t('customerNameUnavailable', { defaultValue: 'Name unavailable' })}
+                    </span>
+                  );
                   return (
                     <TableRow key={c.id}>
                       <TableCell className="text-center text-xs">{(page - 1) * PAGE_SIZE + idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs">{c.caseNumber}</TableCell>
                       {showBrokerage && <TableCell className="text-xs">{brokerageLabel(c.brokerage)}</TableCell>}
                       <TableCell className="font-medium">
-                        {name || (
-                          <span className="text-muted-foreground text-xs">
-                            {t('customerNameUnavailable', { defaultValue: 'Name unavailable' })}
-                          </span>
+                        {c.customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE ? (
+                          personName(c.customer.personNames, languageId) || unavailable
+                        ) : (
+                          <CompanyCustomerName customer={c.customer} languageId={languageId} fallback={unavailable} />
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{c.customer.nationalId ?? '—'}</TableCell>

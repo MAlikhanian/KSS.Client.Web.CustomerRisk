@@ -1,4 +1,4 @@
-import { pickByLanguage } from './format';
+import { pickCompanyName } from './format';
 import {
   ENGLISH_LANGUAGE_ID,
   PERSIAN_LANGUAGE_ID,
@@ -111,14 +111,13 @@ export function foundCompanyValues(
   company: CompanySummaryDto,
   screenLanguageId: number,
 ): { values: CompanyFieldValues; nameLanguageId: number } {
-  const named = company.names.filter((n) => n.name?.trim());
-  const name = pickByLanguage(named, screenLanguageId);
+  const name = pickCompanyName(company.names, screenLanguageId);
   const nameLanguageId =
     name && (name.languageId === PERSIAN_LANGUAGE_ID || name.languageId === ENGLISH_LANGUAGE_ID)
       ? name.languageId
       : screenLanguageId;
   const values = emptyCompanyFields();
-  values.name = name?.name?.trim() ?? '';
+  values.name = name?.name ?? '';
   values.registrationDate = datePart(company.registrationDate);
   values.registrationNo = company.registrationNo?.trim() ?? '';
   values.economicCode = company.economicCode?.trim() ?? '';
