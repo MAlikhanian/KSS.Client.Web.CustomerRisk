@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Info } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTranslation } from '@/hooks/useTranslation';
+import { cn } from '@/lib/utils';
 
 // Versioned: a change to the terms asks everyone to accept them again. An
 // earlier acceptance is left in storage and no longer read.
@@ -13,14 +14,19 @@ const ACCEPTED_KEY = 'customer-risk:tc-accepted:v2';
 
 /**
  * The terms as numbered clauses, in the order of the source document. The
- * numbers are the list's own markers and are not part of the text. The clauses
- * exist in Persian only, so the block is marked Persian and right-to-left
- * whatever the screen's language.
+ * numbers are the list's own markers and are not part of the text: Persian
+ * digits wherever the browser supports the persian list style, decimal digits
+ * otherwise. The clauses exist in Persian only, so the block is marked Persian
+ * and right-to-left whatever the screen's language.
  */
 function TcTerms() {
   const { t } = useTranslation('customer-risk');
   return (
-    <ol dir="rtl" lang="fa" className="text-sm space-y-2 list-decimal ps-5 text-justify">
+    <ol
+      dir="rtl"
+      lang="fa"
+      className="text-sm space-y-2 list-decimal supports-[list-style-type:persian]:[list-style-type:persian] ps-5 text-justify"
+    >
       <li>{t('tcItem01')}</li>
       <li>{t('tcItem02')}</li>
       <li>{t('tcItem03')}</li>
@@ -45,41 +51,26 @@ function TcTerms() {
   );
 }
 
+/**
+ * The terms as an accordion. Collapsed, the clauses are clipped to about three
+ * lines under a fade; the full text stays in the page either way, so nothing is
+ * shortened, only hidden from view. Before acceptance it opens expanded, next to
+ * the checkbox; after acceptance it opens collapsed.
+ */
 export function TcBanner() {
-  const { t } = useTranslation('customer-risk');
+  const { t, i18n } = useTranslation('customer-risk');
   const [accepted, setAccepted] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const titleId = useId();
+  const termsId = useId();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setAccepted(window.localStorage.getItem(ACCEPTED_KEY) === '1');
+    const wasAccepted = window.localStorage.getItem(ACCEPTED_KEY) === '1';
+    setAccepted(wasAccepted);
+    setExpanded(!wasAccepted);
   }, []);
-
-  const title = (
-    <h3 className="text-sm font-semibold text-center">
-      {t('tcTitle', { defaultValue: 'Terms & Regulations' })}
-    </h3>
-  );
-
-  if (accepted) {
-    return (
-      <Card>
-        <CardContent className="py-3 space-y-3">
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span className="flex items-start gap-2">
-              <Info className="size-4 mt-0.5 shrink-0" />
-              <span>{t('tcTitle', { defaultValue: 'Terms & Regulations' })}</span>
-            </span>
-            <Button variant="ghost" size="sm" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
-              {t('tcSeeMore', { defaultValue: 'See full terms' })}
-            </Button>
-          </div>
-          {expanded && <TcTerms />}
-        </CardContent>
-      </Card>
-    );
-  }
 
   const accept = () => {
     if (!checked) return;
@@ -87,22 +78,53 @@ export function TcBanner() {
       window.localStorage.setItem(ACCEPTED_KEY, '1');
     }
     setAccepted(true);
+    setExpanded(false);
   };
 
   return (
     <Card>
       <CardContent className="py-5 space-y-3">
-        {title}
-        <TcTerms />
-        <label className="flex items-center gap-2 text-sm cursor-pointer pt-2">
-          <Checkbox checked={checked} onCheckedChange={(v) => setChecked(!!v)} />
-          {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
-        </label>
-        <div className="flex justify-end">
-          <Button disabled={!checked} onClick={accept}>
-            {t('tcAccepted')}
+        <div className="flex items-center justify-between gap-2">
+          <h3 id={titleId} className="flex-1 text-sm font-semibold text-center">
+            {t('tcTitle', { defaultValue: 'Terms & Regulations' })}
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-labelledby={titleId}
+            aria-expanded={expanded}
+            aria-controls={termsId}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
           </Button>
         </div>
+        {/* The terms are in Persian only; the English page says so, in the owner's own words. */}
+        {i18n.language === 'en' && (
+          <p className="text-xs text-muted-foreground">
+            {t('tcPersianOnlyNote', { defaultValue: 'These terms are available in Persian only.' })}
+          </p>
+        )}
+        <div id={termsId} className={cn('relative', !expanded && 'max-h-16 overflow-hidden')}>
+          <TcTerms />
+          {!expanded && (
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
+          )}
+        </div>
+        {!accepted && (
+          <>
+            <label className="flex items-center gap-2 text-sm cursor-pointer pt-2">
+              <Checkbox checked={checked} onCheckedChange={(v) => setChecked(!!v)} />
+              {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
+            </label>
+            <div className="flex justify-end">
+              <Button disabled={!checked} onClick={accept}>
+                {t('tcAccepted')}
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -6,8 +6,8 @@ import { Label } from '@/components/ui/label';
 import { useTranslation } from '@/hooks/useTranslation';
 import { listCases } from '@/lib/customer-risk/api';
 import { crsErrorMessage } from '@/lib/customer-risk/messages';
-import { CrsPermission, type MeDto } from '@/lib/customer-risk/types';
-import { CrsAccessGate, CrsNotice, CrsStanding, seesAllBrokerages } from './components/crs-access';
+import { CrsPermission } from '@/lib/customer-risk/types';
+import { CrsAccessGate, CrsNotice } from './components/crs-access';
 import { CrsPage } from './components/crs-page';
 import { TcBanner } from './components/tc-banner';
 
@@ -19,13 +19,13 @@ export function LandingContent() {
       description={t('descLanding')}
     >
       <TcBanner />
-      <CrsAccessGate permission={CrsPermission.CaseRead}>{(me) => <Overview me={me} />}</CrsAccessGate>
+      <CrsAccessGate permission={CrsPermission.CaseRead}>{() => <Overview />}</CrsAccessGate>
     </CrsPage>
   );
 }
 
-/** The filing brokerage and its case counts. Counts come from the service's own totals. */
-function Overview({ me }: { me: MeDto }) {
+/** The case counts. Counts come from the service's own totals. */
+function Overview() {
   const { t } = useTranslation('customer-risk');
 
   const active = useQuery({
@@ -42,9 +42,6 @@ function Overview({ me }: { me: MeDto }) {
 
   return (
     <>
-      {/* The overview does not show which brokerage a caller files for. A caller
-          whose access covers every company is still told what that access gives. */}
-      {seesAllBrokerages(me) && <CrsStanding me={me} />}
       {error ? (
         <CrsNotice tone="destructive" title={crsErrorMessage(t, error)} />
       ) : (
