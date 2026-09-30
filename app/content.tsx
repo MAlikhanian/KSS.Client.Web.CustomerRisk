@@ -7,7 +7,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { listCases } from '@/lib/customer-risk/api';
 import { crsErrorMessage } from '@/lib/customer-risk/messages';
 import { CrsPermission, type MeDto } from '@/lib/customer-risk/types';
-import { CrsAccessGate, CrsNotice, CrsStanding } from './components/crs-access';
+import { CrsAccessGate, CrsNotice, CrsStanding, seesAllBrokerages } from './components/crs-access';
 import { CrsPage } from './components/crs-page';
 import { TcBanner } from './components/tc-banner';
 
@@ -42,7 +42,9 @@ function Overview({ me }: { me: MeDto }) {
 
   return (
     <>
-      <CrsStanding me={me} />
+      {/* The overview does not show which brokerage a caller files for. A caller
+          whose access covers every company is still told what that access gives. */}
+      {seesAllBrokerages(me) && <CrsStanding me={me} />}
       {error ? (
         <CrsNotice tone="destructive" title={crsErrorMessage(t, error)} />
       ) : (
