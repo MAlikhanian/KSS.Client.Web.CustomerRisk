@@ -55,7 +55,7 @@ export function SearchContent() {
     <CrsPage
       title={t('pageTitleSearch', { defaultValue: 'Search & Inquiry' })}
       description={t('descNationalIdSearch', {
-        defaultValue: 'Find the cases of a customer by their national ID or legal entity ID.',
+        defaultValue: 'Enter a national ID or legal entity ID to search for a case.',
       })}
     >
       <CrsAccessGate admit={holdsSearchPermission}>{(me) => <NationalIdSearch me={me} />}</CrsAccessGate>

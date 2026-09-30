@@ -342,7 +342,7 @@
   "errorPersonNationalIdUnavailable": "This national ID belongs to a person record that cannot be used, for example a deleted one. This cannot be fixed from this screen; report it to your administrator.",
   "errorInvalidCustomerType": "The customer type is not valid. Reload the page and try again.",
   "errorCompanyFieldsNotLatin": "Registration number and economic code accept only English letters, digits and symbols.",
-  "descNationalIdSearch": "Find the cases of a customer by their national ID or legal entity ID.",
+  "descNationalIdSearch": "Enter a national ID or legal entity ID to search for a case.",
   "searchNationalIdLabel": "National ID or legal entity ID",
   "validationNationalIdInvalid": "This national ID or legal entity ID is not valid. Check the digits.",
   "riskTypesColumn": "Risk types",
