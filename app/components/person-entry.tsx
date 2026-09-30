@@ -204,7 +204,8 @@ export function PersonEntry({
       {lookup.kind === 'idle' && !searchBlockedReason && (
         <p className="text-xs text-muted-foreground">
           {t('searchFirstHint', {
-            defaultValue: 'Enter the 10-digit national ID and search. A person who already exists is linked as-is.',
+            defaultValue:
+              "Enter the 10-digit national ID and search. If the person's information exists, the registered details are added to the case; otherwise, enter the person's details.",
           })}
         </p>
       )}

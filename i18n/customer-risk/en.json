@@ -323,7 +323,7 @@
   "pageOf": "Page {{page}} of {{total}}",
   "searchPerson": "Search",
   "searching": "Searching…",
-  "searchFirstHint": "Enter the 10-digit national ID and search. A person who already exists is linked as-is.",
+  "searchFirstHint": "Enter the 10-digit national ID and search. If the person's information exists, the registered details are added to the case; otherwise, enter the person's details.",
   "personFound": "Found. This existing person will be linked to the case.",
   "personNotFoundNew": "No person with this national ID exists yet. Enter the new person’s details; they are saved in the language of this screen.",
   "customerSexUnavailableV1": "Unavailable — a new person cannot be filed until the list loads",
