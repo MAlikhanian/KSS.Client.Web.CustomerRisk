@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { ChevronDown } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,8 +10,10 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
 
 // Versioned: a change to the terms asks everyone to accept them again. An
-// earlier acceptance is left in storage and no longer read.
-const ACCEPTED_KEY = 'customer-risk:tc-accepted:v2';
+// earlier acceptance is left in storage and no longer read. Each signed-in
+// account has its own entry, keyed by its Auth user id, so a second person in
+// the same browser is asked for their own acceptance.
+const ACCEPTED_KEY_PREFIX = 'customer-risk:tc-accepted:v3';
 
 /**
  * The terms as numbered clauses, in the order of the source document. The
@@ -57,10 +60,17 @@ function TcTerms() {
  * arrow, is one button that opens and closes it; clicking the faded preview
  * also opens it. The full text stays in the page either way, so nothing is
  * shortened, only hidden from view. Before acceptance, the checkbox and the
- * accept button sit under the card whether it is open or not.
+ * accept button sit under the card whether it is open or not. After acceptance the
+ * checkbox stays, ticked and locked, and a plain "accepted" label takes the
+ * button's place.
  */
 export function TcBanner() {
   const { t, i18n } = useTranslation('customer-risk');
+  const { data: session, status } = useSession();
+  // No id, no key: until the signed-in account is known nothing is read or
+  // written, and the terms are shown as not yet accepted.
+  const userId = status === 'authenticated' ? session?.user?.id || null : null;
+  const acceptedKey = userId ? `${ACCEPTED_KEY_PREFIX}:${userId}` : null;
   const [accepted, setAccepted] = useState(false);
   const [checked, setChecked] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -68,14 +78,19 @@ export function TcBanner() {
   const hintId = useId();
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    setAccepted(window.localStorage.getItem(ACCEPTED_KEY) === '1');
-  }, []);
+    // A different account starts from its own state; no account means not accepted.
+    setChecked(false);
+    if (typeof window === 'undefined' || !acceptedKey) {
+      setAccepted(false);
+      return;
+    }
+    setAccepted(window.localStorage.getItem(acceptedKey) === '1');
+  }, [acceptedKey]);
 
   const accept = () => {
-    if (!checked) return;
+    if (!checked || !acceptedKey) return;
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ACCEPTED_KEY, '1');
+      window.localStorage.setItem(acceptedKey, '1');
     }
     setAccepted(true);
   };
@@ -117,32 +132,39 @@ export function TcBanner() {
             </div>
           )}
         </div>
-        {!accepted && (
-          <>
-            <label className="flex items-center gap-2 text-sm cursor-pointer pt-2">
-              {/* A stronger, larger outline than the kit default, whose border is too faint
-                  against the card to read as a control in either theme. */}
-              <Checkbox
-                size="lg"
-                className="border-2 border-primary"
-                checked={checked}
-                onCheckedChange={(v) => setChecked(!!v)}
-              />
-              {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
-            </label>
-            <div className="flex items-center justify-end gap-3">
+        <label className={cn('flex items-center gap-2 text-sm pt-2', !accepted && 'cursor-pointer')}>
+          {/* A stronger, larger outline than the kit default, whose border is too faint
+              against the card to read as a control in either theme. Once the terms are
+              accepted it stays ticked and can no longer be changed. */}
+          <Checkbox
+            size="lg"
+            className="border-2 border-primary"
+            checked={accepted || checked}
+            disabled={accepted}
+            onCheckedChange={(v) => setChecked(!!v)}
+          />
+          {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
+        </label>
+        <div className="flex items-center justify-end gap-3">
+          {accepted ? (
+            // Plain text, not a control: the acceptance is done and there is nothing left to press.
+            <p className="text-sm font-medium text-muted-foreground">
+              {t('tcAcceptedDone', { defaultValue: 'Accepted' })}
+            </p>
+          ) : (
+            <>
               {/* Until the box is ticked the button is disabled, and this says what enables it. */}
               {!checked && (
                 <p id={hintId} className="text-xs text-muted-foreground">
                   {t('tcAcceptHint', { defaultValue: 'Select the option above first.' })}
                 </p>
               )}
-              <Button disabled={!checked} onClick={accept} aria-describedby={checked ? undefined : hintId}>
+              <Button disabled={!checked || !acceptedKey} onClick={accept} aria-describedby={checked ? undefined : hintId}>
                 {t('tcAcceptButton', { defaultValue: 'Accept' })}
               </Button>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
