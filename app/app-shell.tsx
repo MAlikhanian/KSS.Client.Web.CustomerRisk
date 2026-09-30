@@ -6,8 +6,6 @@ import { ScreenLoader } from '@/components/common/screen-loader';
 import { TokenExpiryGuard } from '@/components/common/token-expiry-guard';
 import { CurrentCompanyProvider } from '@/providers/current-company-provider';
 import { Demo1Layout } from '@/app/components/layouts/demo1/layout';
-// PREVIEW-ONLY: remove this import and the mount below before a production build.
-import { PreviewBanner } from '@/app/components/preview-banner';
 
 /**
  * Session guard + chrome for a domain app.
@@ -57,19 +55,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <ScreenLoader />;
   }
 
-  // PREVIEW-ONLY. PreviewBanner is mounted HERE, above children, because this is
-  // the only branch of this component that ever renders content — every other
-  // path above returns <ScreenLoader /> or null. One mount therefore covers every
-  // screen in the zone, including routes that do not exist yet. Do not move it
-  // onto the pages: a partly-marked preview reads as if the unmarked screens were
-  // the released ones. Remove it before a production build (see preview-banner.tsx).
   return session ? (
     <CurrentCompanyProvider>
       <TokenExpiryGuard />
-      <Demo1Layout>
-        <PreviewBanner />
-        {children}
-      </Demo1Layout>
+      <Demo1Layout>{children}</Demo1Layout>
     </CurrentCompanyProvider>
   ) : null;
 }

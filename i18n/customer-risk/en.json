@@ -309,7 +309,6 @@
   "personNotFoundNew": "No person with this national ID exists yet. Enter the new person’s details; they are saved in the language of this screen.",
   "customerSexUnavailableV1": "Unavailable — a new person cannot be filed until the list loads",
   "errorPersonDuplicateNationalId": "Two people hold this national ID in the person records, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.",
-  "previewOnlyBanner": "Preview version — for review only.",
   "brokeragePickerPlaceholder": "Choose a brokerage",
   "brokeragePickerSearch": "Search brokerages",
   "brokeragePickerNoMatch": "No brokerage matches.",
