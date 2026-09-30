@@ -39,9 +39,9 @@ const PageNavbar = () => {
 
   const items = [
     { title: t('navLanding', { defaultValue: 'Overview' }), path: '/customer-risk/overview' },
+    ...(maySearch ? [{ title: t('navSearch', { defaultValue: 'Search' }), path: '/customer-risk/search' }] : []),
     { title: t('navCases', { defaultValue: 'My Cases' }), path: '/customer-risk/cases' },
     { title: t('navArchive', { defaultValue: 'Archive' }), path: '/customer-risk/archive' },
-    ...(maySearch ? [{ title: t('navSearch', { defaultValue: 'Search' }), path: '/customer-risk/search' }] : []),
     ...(viewOnly
       ? []
       : [{ title: t('navNewCase', { defaultValue: 'New Case' }), path: '/customer-risk/new-case' }]),
