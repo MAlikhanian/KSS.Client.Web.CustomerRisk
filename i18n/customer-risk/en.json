@@ -342,5 +342,13 @@
   "errorCompanyDuplicateNationalId": "Two companies hold this legal entity ID, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.",
   "errorPersonNationalIdUnavailable": "This national ID belongs to a person record that cannot be used, for example a deleted one. This cannot be fixed from this screen; report it to your administrator.",
   "errorInvalidCustomerType": "The customer type is not valid. Reload the page and try again.",
-  "errorCompanyFieldsNotLatin": "Registration number and economic code accept only English letters, digits and symbols."
+  "errorCompanyFieldsNotLatin": "Registration number and economic code accept only English letters, digits and symbols.",
+  "descNationalIdSearch": "Find the cases of a customer by their national ID or legal entity ID.",
+  "searchNationalIdLabel": "National ID or legal entity ID",
+  "validationNationalIdInvalid": "This national ID or legal entity ID is not valid. Check the digits.",
+  "riskTypesColumn": "Risk types",
+  "brokerageOther": "Another brokerage",
+  "descCaseViewReadOnly": "A read-only view of a case found by national ID search.",
+  "caseViewNotAvailable": "This case is not available.",
+  "errorCompanySearchNotAllowed": "Searching by a legal entity ID, and opening a company's case, needs case-read access. Ask your administrator for it."
 }

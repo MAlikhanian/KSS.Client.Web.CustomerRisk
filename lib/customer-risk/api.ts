@@ -15,12 +15,15 @@ import type {
   CaseDetailDto,
   CaseListRequest,
   CaseSummaryDto,
+  CaseViewByNationalIdRequestDto,
   CreateCaseRequestDto,
   CustomerLookupDto,
   ExternalLookupDto,
   FilingBrokerageDto,
   LookupsDto,
   MeDto,
+  NationalIdSearchRequestDto,
+  NationalIdSearchResponseDto,
   PagedResultDto,
 } from './types';
 
@@ -122,6 +125,21 @@ export const listFilingBrokerages = () => http<FilingBrokerageDto[]>('GET', '/fi
 /** The filing brokerage's own cases. A POST because `q` may be a national id. */
 export const listCases = (request: CaseListRequest) =>
   http<PagedResultDto<CaseSummaryDto>>('POST', '/cases/list', request);
+
+/**
+ * The national-id search: every case whose customer holds this exact id. The
+ * id travels in the body, never the URL, and it is sent only once it is
+ * complete and passes its checksum (nationalIdKind).
+ */
+export const searchByNationalId = (request: NationalIdSearchRequestDto) =>
+  http<NationalIdSearchResponseDto>('POST', '/search', request);
+
+/**
+ * The read-only view of a case the search found, for the id it was found by.
+ * Both travel in the body; only the searched id opens it.
+ */
+export const viewCaseByNationalId = (request: CaseViewByNationalIdRequestDto) =>
+  http<CaseDetailDto>('POST', '/search/view', request);
 
 export const getCase = (id: string) => http<CaseDetailDto>('GET', `/cases/${encodeURIComponent(id)}`);
 

@@ -292,6 +292,32 @@ export interface CaseListRequest {
   pageSize: number;
 }
 
+// ─── National-id search ─────────────────────────────────────────────────────
+
+/**
+ * The search's whole request: one complete national id, 10 digits for a
+ * person or 11 for a company. The service infers which from the length and
+ * refuses any other property.
+ */
+export interface NationalIdSearchRequestDto {
+  nationalId: string;
+}
+
+/** The cases whose CUSTOMER holds that id, newest first; the same rows as the case list. */
+export interface NationalIdSearchResponseDto {
+  cases: CaseSummaryDto[];
+}
+
+/**
+ * The read-only view of a case found by the search. The service serves it only
+ * when that case's customer holds this exact national id, and answers a wrong
+ * id and a missing case identically. The answer is a CaseDetailDto.
+ */
+export interface CaseViewByNationalIdRequestDto {
+  caseId: string;
+  nationalId: string;
+}
+
 // ─── Filing ─────────────────────────────────────────────────────────────────
 
 /** Every fact about a new person comes from the operator; nothing is defaulted. */

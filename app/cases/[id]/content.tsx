@@ -115,7 +115,12 @@ function CaseDetail({ id, me }: { id: string; me: MeDto }) {
   );
 }
 
-function CaseView({
+/**
+ * The whole case, for reading. Also the national-id search's read-only view of
+ * another brokerage's case, with canArchive false: the archive pair is its
+ * only control, so without it the view changes nothing.
+ */
+export function CaseView({
   caseFile,
   canArchive,
   showBrokerage,
@@ -354,41 +359,43 @@ function CaseView({
         </Card>
       )}
 
-      <AlertDialog open={confirming} onOpenChange={(open) => !open && !toggle.isPending && setConfirming(false)}>
-        <AlertDialogContent dir={isRtl ? 'rtl' : 'ltr'}>
-          <AlertDialogHeader className="text-start sm:text-start">
-            <AlertDialogTitle>
-              {caseFile.isArchived
-                ? t('confirmUnarchiveTitle', { defaultValue: 'Restore case' })
-                : t('confirmArchiveTitle', { defaultValue: 'Archive case' })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {caseFile.isArchived
-                ? t('confirmUnarchive', { defaultValue: 'Restore from archive?' })
-                : t('confirmArchive', { defaultValue: 'Archive this case?' })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="sm:space-x-0 sm:gap-2.5">
-            <AlertDialogCancel
-              disabled={toggle.isPending}
-              className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-            >
-              {t('cancel', { defaultValue: 'Cancel' })}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={toggle.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                toggle.mutate();
-              }}
-            >
-              {caseFile.isArchived
-                ? t('unarchive', { defaultValue: 'Unarchive' })
-                : t('archive', { defaultValue: 'Archive' })}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {canArchive && (
+        <AlertDialog open={confirming} onOpenChange={(open) => !open && !toggle.isPending && setConfirming(false)}>
+          <AlertDialogContent dir={isRtl ? 'rtl' : 'ltr'}>
+            <AlertDialogHeader className="text-start sm:text-start">
+              <AlertDialogTitle>
+                {caseFile.isArchived
+                  ? t('confirmUnarchiveTitle', { defaultValue: 'Restore case' })
+                  : t('confirmArchiveTitle', { defaultValue: 'Archive case' })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {caseFile.isArchived
+                  ? t('confirmUnarchive', { defaultValue: 'Restore from archive?' })
+                  : t('confirmArchive', { defaultValue: 'Archive this case?' })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="sm:space-x-0 sm:gap-2.5">
+              <AlertDialogCancel
+                disabled={toggle.isPending}
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                {t('cancel', { defaultValue: 'Cancel' })}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={toggle.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  toggle.mutate();
+                }}
+              >
+                {caseFile.isArchived
+                  ? t('unarchive', { defaultValue: 'Unarchive' })
+                  : t('archive', { defaultValue: 'Archive' })}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
 }

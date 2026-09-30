@@ -58,6 +58,10 @@ const MESSAGES: Record<string, [key: string, english: string]> = {
   CRS_COMPANY_DUPLICATE_NATIONAL_ID: ['errorCompanyDuplicateNationalId', 'Two companies hold this legal entity ID, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.'],
   CRS_PERSON_NATIONAL_ID_UNAVAILABLE: ['errorPersonNationalIdUnavailable', 'This national ID belongs to a person record that cannot be used, for example a deleted one. This cannot be fixed from this screen; report it to your administrator.'],
   CRS_INVALID_CUSTOMER_TYPE: ['errorInvalidCustomerType', 'The customer type is not valid. Reload the page and try again.'],
+  // A search by an 11-digit legal entity ID, or opening a company customer's
+  // case, needs case-read access. Decided from the input and the caller's own
+  // permissions, so it says nothing about any case.
+  CRS_COMPANY_SEARCH_NOT_ALLOWED: ['errorCompanySearchNotAllowed', "Searching by a legal entity ID, and opening a company's case, needs case-read access. Ask your administrator for it."],
   Unauthorized: ['errorSessionExpired', 'Your session has ended. Sign in again.'],
 };
 

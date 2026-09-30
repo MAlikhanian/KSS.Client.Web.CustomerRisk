@@ -39,6 +39,7 @@ import { crsErrorMessage } from '@/lib/customer-risk/messages';
 import {
   CrsPermission,
   INDIVIDUAL_CUSTOMER_TYPE_CODE,
+  type CaseCustomerDto,
   type CaseSummaryDto,
   type MeDto,
 } from '@/lib/customer-risk/types';
@@ -53,6 +54,18 @@ import {
   useBrokerageLabel,
 } from './crs-access';
 import { showError, showSuccess } from './crs-toast';
+
+/**
+ * A case customer's name for a list row: a person's name, or a company's name
+ * alone (its national id has its own column), in the screen's language, else
+ * the one there is. '' when none could be read, so the caller shows its own
+ * fallback, the same for persons and companies.
+ */
+export function listCustomerName(customer: CaseCustomerDto, languageId: number): string {
+  return customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE
+    ? personName(customer.personNames, languageId)
+    : (pickCompanyName(customer.companyNames, languageId)?.name ?? '');
+}
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 400;
@@ -199,11 +212,7 @@ function CaseListTable({ archived, me }: { archived: boolean; me: MeDto }) {
                       <TableCell className="font-mono text-xs">{c.caseNumber}</TableCell>
                       {showBrokerage && <TableCell className="text-xs">{brokerageLabel(c.brokerage)}</TableCell>}
                       <TableCell className="font-medium">
-                        {c.customer.customerType === INDIVIDUAL_CUSTOMER_TYPE_CODE ? (
-                          personName(c.customer.personNames, languageId) || unavailable
-                        ) : (
-                          pickCompanyName(c.customer.companyNames, languageId)?.name || unavailable
-                        )}
+                        {listCustomerName(c.customer, languageId) || unavailable}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{c.customer.nationalId ?? '—'}</TableCell>
                       <TableCell className="text-xs">

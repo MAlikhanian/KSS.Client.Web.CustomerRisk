@@ -260,11 +260,17 @@ export function CrsStanding({ me }: { me: MeDto }) {
 export function CrsAccessGate({
   permission,
   files = false,
+  admit,
   children,
 }: {
-  permission: CrsPermissionCode;
+  permission?: CrsPermissionCode;
   /** True on a screen that files a case. */
   files?: boolean;
+  /**
+   * A screen's own admission rule, used INSTEAD of the brokerage and
+   * permission checks above. A caller it refuses sees the not-enabled notice.
+   */
+  admit?: (me: MeDto) => boolean;
   children: (me: MeDto) => ReactNode;
 }) {
   const { t } = useTranslation('customer-risk');
@@ -288,18 +294,22 @@ export function CrsAccessGate({
   if (isPending || !me) {
     return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
   }
+  const notEnabled = (
+    <CrsNotice
+      title={t('meNotEnabled', {
+        defaultValue: 'Customer risk is not enabled for your account. Ask your administrator for access.',
+      })}
+    />
+  );
+  if (admit) {
+    return admit(me) ? <>{children(me)}</> : notEnabled;
+  }
   const admitted = files ? filesCases(me) : me.status === 'resolved' || seesAllBrokerages(me);
   if (!admitted) {
     return <CrsStanding me={me} />;
   }
-  if (!hasCrsPermission(me, permission)) {
-    return (
-      <CrsNotice
-        title={t('meNotEnabled', {
-          defaultValue: 'Customer risk is not enabled for your account. Ask your administrator for access.',
-        })}
-      />
-    );
+  if (!permission || !hasCrsPermission(me, permission)) {
+    return notEnabled;
   }
   return <>{children(me)}</>;
 }

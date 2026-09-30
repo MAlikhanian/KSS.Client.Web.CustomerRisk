@@ -5,12 +5,19 @@ import { NavbarMenu } from '@/partials/navbar/navbar-menu';
 import { useSettings } from '@/providers/settings-provider';
 import { Container } from '@/components/common/container';
 import { useTranslation } from '@/hooks/useTranslation';
-import { filesCases, seesAllBrokerages, useBrokerageLabel, useCrsMe } from './components/crs-access';
+import { holdsSearchPermission } from '@/lib/customer-risk/search-access';
+import {
+  filesCases,
+  seesAllBrokerages,
+  useBrokerageLabel,
+  useCrsMe,
+} from './components/crs-access';
 
 /**
- * The zone's own tabs. This version has four screens; the cross-brokerage
- * search, the audit log and the administration screens are not in it, and are
- * not offered here. Their routes still answer with a "not in this version"
+ * The zone's own tabs. The national-id search, which spans every brokerage, is
+ * offered only to a caller holding CustomerRisk.Search.Read. The cross-brokerage search, the audit
+ * log and the administration screens are not in this version, and are not
+ * offered here. Their routes still answer with a "not in this version"
  * card, because the estate sidebar (a kit-synced file this zone does not own)
  * still links to them.
  *
@@ -28,11 +35,13 @@ const PageNavbar = () => {
   const { data: me } = useCrsMe();
   const brokerageLabel = useBrokerageLabel();
   const viewOnly = !!me && seesAllBrokerages(me) && !filesCases(me);
+  const maySearch = !!me && holdsSearchPermission(me);
 
   const items = [
     { title: t('navLanding', { defaultValue: 'Overview' }), path: '/customer-risk/overview' },
     { title: t('navCases', { defaultValue: 'My Cases' }), path: '/customer-risk/cases' },
     { title: t('navArchive', { defaultValue: 'Archive' }), path: '/customer-risk/archive' },
+    ...(maySearch ? [{ title: t('navSearch', { defaultValue: 'Search' }), path: '/customer-risk/search' }] : []),
     ...(viewOnly
       ? []
       : [{ title: t('navNewCase', { defaultValue: 'New Case' }), path: '/customer-risk/new-case' }]),
