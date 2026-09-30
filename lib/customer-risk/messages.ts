@@ -34,7 +34,7 @@ const MESSAGES: Record<string, [key: string, english: string]> = {
   CRS_PERSON_FIELDS_REQUIRED: ['errorPersonFieldsRequired', 'A new person needs a first name, a last name, a date of birth and a sex.'],
   CRS_PERSON_DUPLICATE_NATIONAL_ID: ['errorPersonDuplicateNationalId', 'Two people hold this national ID in the person records, so the system will not choose one. This cannot be fixed from this screen; report it to your administrator.'],
   CRS_BIRTH_DATE_NOT_A_DATE:['errorBirthDateNotADate', 'Enter the date of birth again using the calendar.'],
-  CRS_INVALID_NATIONAL_ID:['validationNationalIdLength', 'National ID must be exactly 10 digits.'],
+  CRS_INVALID_NATIONAL_ID:['validationNationalIdDigits', 'A person’s national ID must be exactly 10 digits, and a company’s legal entity ID exactly 11 digits.'],
   CRS_INVALID_RISK_TYPE: ['validationRiskType', 'Choose a type for every risk.'],
   CRS_RISK_TYPE_SINGLE: ['validationRiskTypeSingle', 'This risk type can be added only once per case.'],
   CRS_RISK_TITLE_REQUIRED: ['validationRiskTitle', 'This risk type needs a title.'],

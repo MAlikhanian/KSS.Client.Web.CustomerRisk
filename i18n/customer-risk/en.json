@@ -350,5 +350,6 @@
   "brokerageOther": "Another brokerage",
   "descCaseViewReadOnly": "A read-only view of a case found by national ID search.",
   "caseViewNotAvailable": "This case is not available.",
-  "errorCompanySearchNotAllowed": "Searching by a legal entity ID, and opening a company's case, needs case-read access. Ask your administrator for it."
+  "errorCompanySearchNotAllowed": "Searching by a legal entity ID, and opening a company's case, needs case-read access. Ask your administrator for it.",
+  "validationNationalIdDigits": "A person’s national ID must be exactly 10 digits, and a company’s legal entity ID exactly 11 digits."
 }
