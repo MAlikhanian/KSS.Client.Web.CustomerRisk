@@ -53,6 +53,8 @@
   "tcItem19": "استفاده از این بستر هیچ‌گونه رابطه قراردادی، نمایندگی، امانت‌داری، تضمین یا تعهدی میان کانون و کاربران ایجاد نمی‌کند و مسئولیت‌های قانونی کارگزاری‌ها به موجب قوانین و مقررات حاکم، به واسطه استفاده از سامانه کاهش یا منتقل نخواهد شد.",
   "tcItem20": "ورود به سامانه، ایجاد حساب کاربری یا هرگونه استفاده از خدمات آن به منزله مطالعه، آگاهی و پذیرش کامل این مقررات و اقرار کارگزاری به مسئولیت کلیه اطلاعات و اقدامات انجام‌شده از طریق حساب کاربری خود و پذیرش اینکه کانون صرفاً فراهم‌کننده زیرساخت فنی بستر موجود است خواهد بود.",
   "tcAccepted": "I have read and accept the terms and regulations.",
+  "tcAcceptButton": "Accept",
+  "tcAcceptHint": "Select the option above first.",
   "tcPersianOnlyNote": "These terms are available in Persian only.",
   "statsActiveCases": "Active cases",
   "statsArchivedCases": "Archived cases",

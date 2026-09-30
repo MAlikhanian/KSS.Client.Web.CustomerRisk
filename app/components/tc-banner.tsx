@@ -65,6 +65,7 @@ export function TcBanner() {
   const [checked, setChecked] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const termsId = useId();
+  const hintId = useId();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -119,12 +120,25 @@ export function TcBanner() {
         {!accepted && (
           <>
             <label className="flex items-center gap-2 text-sm cursor-pointer pt-2">
-              <Checkbox checked={checked} onCheckedChange={(v) => setChecked(!!v)} />
+              {/* A stronger, larger outline than the kit default, whose border is too faint
+                  against the card to read as a control in either theme. */}
+              <Checkbox
+                size="lg"
+                className="border-2 border-primary"
+                checked={checked}
+                onCheckedChange={(v) => setChecked(!!v)}
+              />
               {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
             </label>
-            <div className="flex justify-end">
-              <Button disabled={!checked} onClick={accept}>
-                {t('tcAccepted')}
+            <div className="flex items-center justify-end gap-3">
+              {/* Until the box is ticked the button is disabled, and this says what enables it. */}
+              {!checked && (
+                <p id={hintId} className="text-xs text-muted-foreground">
+                  {t('tcAcceptHint', { defaultValue: 'Select the option above first.' })}
+                </p>
+              )}
+              <Button disabled={!checked} onClick={accept} aria-describedby={checked ? undefined : hintId}>
+                {t('tcAcceptButton', { defaultValue: 'Accept' })}
               </Button>
             </div>
           </>
