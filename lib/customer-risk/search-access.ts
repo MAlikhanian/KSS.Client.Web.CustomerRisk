@@ -1,5 +1,5 @@
-import { companyName } from './format';
-import { CrsPermission, type BrokerageRefDto } from './types';
+import { companyName, lookupName } from './format';
+import { CrsPermission, type BrokerageRefDto, type LookupItemDto, type RelatedMatchDto } from './types';
 
 /**
  * Who may use the national-id search, and where each of its rows opens. Pure
@@ -47,6 +47,22 @@ export function searchBrokerageName(
 ): string {
   const name = ref && !brokerageNameFailed(ref) ? companyName(ref.names, languageId) : '';
   return name || failedText;
+}
+
+/**
+ * The relation names a search hit is marked with, one per relation through which
+ * the searched id is a related person of the case, in the screen's language,
+ * falling back to the relation's code. Empty when the id matched only as the
+ * customer, or when the service sent no related matches.
+ */
+export function relatedMatchRelationNames(
+  matches: readonly RelatedMatchDto[] | null | undefined,
+  relationTypes: readonly LookupItemDto[] | null | undefined,
+  languageId: number,
+): string[] {
+  return (matches ?? []).map(
+    (m) => lookupName(relationTypes?.find((r) => r.id === m.relationTypeId)?.names, languageId) || m.relationTypeCode,
+  );
 }
 
 /** Whether the caller holds CustomerRisk.Case.Read itself, read from the claim like the search permission. */

@@ -30,10 +30,11 @@ import {
   holdsCaseReadPermission,
   holdsSearchPermission,
   opensCasePage,
+  relatedMatchRelationNames,
   searchBrokerageName,
 } from '@/lib/customer-risk/search-access';
 import { forgetSearchedNationalId, rememberSearchedNationalId } from '@/lib/customer-risk/search-memory';
-import type { BrokerageRefDto, CaseSummaryDto, MeDto } from '@/lib/customer-risk/types';
+import type { BrokerageRefDto, MeDto, NationalIdSearchCaseDto } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from '../components/case-status-badge';
 import { listCustomerName } from '../components/case-list';
 import { CrsAccessGate, CrsNotice, seesAllBrokerages } from '../components/crs-access';
@@ -64,7 +65,7 @@ export function SearchContent() {
 
 /** What the last search answered, for the id it was asked for. */
 type Answer =
-  | { kind: 'cases'; nationalId: string; cases: CaseSummaryDto[] }
+  | { kind: 'cases'; nationalId: string; cases: NationalIdSearchCaseDto[] }
   | { kind: 'invalid'; nationalId: string }
   | { kind: 'refused' }
   | { kind: 'error'; nationalId: string; message: string };
@@ -223,6 +224,17 @@ function NationalIdSearch({ me }: { me: MeDto }) {
                         <span className="text-muted-foreground text-xs">
                           {t('customerNameUnavailable', { defaultValue: 'Name unavailable' })}
                         </span>
+                      )}
+                      {/* The searched id is a related person of this case: one note per relation. */}
+                      {relatedMatchRelationNames(c.relatedMatches, lookups?.relationTypes, languageId).map(
+                        (relation, index) => (
+                          <div key={index} className="text-xs font-normal text-muted-foreground">
+                            {t('searchMatchRelatedPerson', {
+                              defaultValue: 'Match: related person — {{relation}}',
+                              relation,
+                            })}
+                          </div>
+                        ),
                       )}
                     </TableCell>
                     <TableCell>

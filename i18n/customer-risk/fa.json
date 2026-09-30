@@ -352,5 +352,6 @@
   "validationNationalIdDigits": "کد ملی شخص باید دقیقاً ۱۰ رقم و شناسهٔ ملی شرکت دقیقاً ۱۱ رقم باشد.",
   "searchNoCaseForNationalId": "پرونده‌ای با این کد ملی یافت نشد",
   "registeringBrokerage": "کارگزاری ثبت‌کننده",
-  "brokerageInfoLoadFailed": "دریافت اطلاعات با مشکل مواجه شد. لطفاً مجدداً تلاش کنید."
+  "brokerageInfoLoadFailed": "دریافت اطلاعات با مشکل مواجه شد. لطفاً مجدداً تلاش کنید.",
+  "searchMatchRelatedPerson": "تطبیق: شخص مرتبط — {{relation}}"
 }

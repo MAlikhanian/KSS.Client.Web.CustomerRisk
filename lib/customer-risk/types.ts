@@ -304,8 +304,26 @@ export interface NationalIdSearchRequestDto {
 }
 
 /** The cases whose CUSTOMER holds that id, newest first; the same rows as the case list. */
+/** A relation through which the searched id is a related person of the case. */
+export interface RelatedMatchDto {
+  relationTypeId: number;
+  relationTypeCode: string;
+}
+
+/**
+ * One case found by national id: one row per case, however the id matched it.
+ * Both match fields are optional so that a service which does not send them
+ * yet reads as a plain customer match, with no note.
+ */
+export interface NationalIdSearchCaseDto extends CaseSummaryDto {
+  /** The searched id is the case's customer. */
+  matchedAsCustomer?: boolean;
+  /** Each relation through which the searched id is a related person; empty when it is not. */
+  relatedMatches?: RelatedMatchDto[];
+}
+
 export interface NationalIdSearchResponseDto {
-  cases: CaseSummaryDto[];
+  cases: NationalIdSearchCaseDto[];
 }
 
 /**

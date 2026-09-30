@@ -352,5 +352,6 @@
   "validationNationalIdDigits": "A person’s national ID must be exactly 10 digits, and a company’s legal entity ID exactly 11 digits.",
   "searchNoCaseForNationalId": "No case was found for this national ID.",
   "registeringBrokerage": "Registering brokerage",
-  "brokerageInfoLoadFailed": "Could not load the information. Please try again."
+  "brokerageInfoLoadFailed": "Could not load the information. Please try again.",
+  "searchMatchRelatedPerson": "Match: related person — {{relation}}"
 }
