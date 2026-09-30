@@ -111,6 +111,8 @@ function NationalIdSearch({ me }: { me: MeDto }) {
 
   const run = () => {
     if (!kind || search.isPending) return;
+    // A new search starts from nothing: the previous answer, including an empty one, is cleared.
+    setAnswer(null);
     search.mutate(nationalId);
   };
 
@@ -181,6 +183,12 @@ function NationalIdSearch({ me }: { me: MeDto }) {
         )}
 
         {current?.kind === 'error' && <p className="text-sm text-destructive">{current.message}</p>}
+
+        {current?.kind === 'cases' && current.cases.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {t('searchNoCaseForNationalId', { defaultValue: 'No case was found for this national ID.' })}
+          </p>
+        )}
 
         {current?.kind === 'cases' && current.cases.length > 0 && (
           <Table>
