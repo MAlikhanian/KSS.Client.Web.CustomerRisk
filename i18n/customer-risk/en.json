@@ -10,7 +10,7 @@
   "pageTitleAdminIps": "IP Whitelist",
   "pageTitleAdminSecurity": "Security Overview",
   "descLanding": "A self-declaration system for brokerages to record and manage customer risk records. Each case belongs to the brokerage that registered it, and users see only the cases within their own access.",
-  "descCases": "Case files your access covers: your brokerage's, or every brokerage's if your access covers all companies. Files cannot be deleted — only archived.",
+  "descCases": "Cases are shown according to your access level. Cases can't be deleted; they can only be archived.",
   "descNewCase": "Create a new risk case file. Each case is filed for one brokerage and, once saved, belongs to that brokerage.",
   "descCaseDetail": "View an existing risk case file. If your access allows, you can also archive it or restore it from the archive.",
   "descSearch": "Inquire on risk case files registered by all brokerages. Results show only the limited fields permitted by the access policy.",
