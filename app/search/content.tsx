@@ -19,7 +19,7 @@ import {
 import { useTranslation } from '@/hooks/useTranslation';
 import { toEnglishDigits } from '@/app/components/person/format-utils';
 import { CrsApiError, getLookups, searchByNationalId } from '@/lib/customer-risk/api';
-import { companyName, formatDate, languageIdFor, lookupName } from '@/lib/customer-risk/format';
+import { formatDate, languageIdFor, lookupName } from '@/lib/customer-risk/format';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
 import {
   COMPANY_NATIONAL_ID_LENGTH,
@@ -29,15 +29,14 @@ import {
 import {
   holdsCaseReadPermission,
   holdsSearchPermission,
-  isOwnBrokerage,
   opensCasePage,
-  searchBrokerageText,
+  searchBrokerageName,
 } from '@/lib/customer-risk/search-access';
 import { forgetSearchedNationalId, rememberSearchedNationalId } from '@/lib/customer-risk/search-memory';
 import type { BrokerageRefDto, CaseSummaryDto, MeDto } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from '../components/case-status-badge';
 import { listCustomerName } from '../components/case-list';
-import { CrsAccessGate, CrsNotice, seesAllBrokerages, useBrokerageLabel } from '../components/crs-access';
+import { CrsAccessGate, CrsNotice, seesAllBrokerages } from '../components/crs-access';
 import { CrsPage } from '../components/crs-page';
 
 /**
@@ -73,7 +72,6 @@ type Answer =
 function NationalIdSearch({ me }: { me: MeDto }) {
   const { t, i18n } = useTranslation('customer-risk');
   const languageId = languageIdFor(i18n.language);
-  const brokerageLabel = useBrokerageLabel();
   const allCompany = seesAllBrokerages(me);
   const caseRead = holdsCaseReadPermission(me);
   const ownBrokerageId = me.filingBrokerage?.id;
@@ -140,13 +138,8 @@ function NationalIdSearch({ me }: { me: MeDto }) {
   };
   // Another brokerage whose name could not be read is named neutrally; the
   // caller's own keeps the list's usual wording.
-  const brokerageCell = (ref: BrokerageRefDto | undefined, own: boolean) =>
-    searchBrokerageText(
-      ref?.resolved ? companyName(ref.names, languageId) : '',
-      own,
-      brokerageLabel(ref),
-      t('brokerageOther', { defaultValue: 'Another brokerage' }),
-    );
+  const brokerageCell = (ref: BrokerageRefDto | undefined) =>
+    searchBrokerageName(ref, languageId, t('brokerageInfoLoadFailed', { defaultValue: 'Could not load the information. Please try again.' }));
 
   return (
     <Card>
@@ -212,7 +205,6 @@ function NationalIdSearch({ me }: { me: MeDto }) {
             </TableHeader>
             <TableBody>
               {current.cases.map((c) => {
-                const own = isOwnBrokerage(ownBrokerageId, c.brokerage?.id);
                 // Every hit opens: the regular case page when the caller could
                 // open it anyway, otherwise the read-only view of this search.
                 const href = opensCasePage(caseRead, allCompany, ownBrokerageId, c.brokerage?.id)
@@ -225,7 +217,7 @@ function NationalIdSearch({ me }: { me: MeDto }) {
                         {c.caseNumber}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-xs">{brokerageCell(c.brokerage, own)}</TableCell>
+                    <TableCell className="text-xs">{brokerageCell(c.brokerage)}</TableCell>
                     <TableCell className="font-medium">
                       {listCustomerName(c.customer, languageId) || (
                         <span className="text-muted-foreground text-xs">

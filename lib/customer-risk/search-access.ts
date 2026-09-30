@@ -1,4 +1,5 @@
-import { CrsPermission } from './types';
+import { companyName } from './format';
+import { CrsPermission, type BrokerageRefDto } from './types';
 
 /**
  * Who may use the national-id search, and where each of its rows opens. Pure
@@ -26,18 +27,26 @@ export function isOwnBrokerage(
 }
 
 /**
- * The registering brokerage as the search screens show it: its name when the
- * service could read one; otherwise the caller's own brokerage keeps its usual
- * wording, and any other brokerage is named neutrally, never by its id.
+ * Whether the service could not supply the brokerage's name. The only place the
+ * search screens read that signal, so a change in how the service marks it is a
+ * change here alone.
  */
-export function searchBrokerageText(
-  resolvedName: string,
-  own: boolean,
-  ownFallback: string,
-  otherFallback: string,
+export function brokerageNameFailed(ref: BrokerageRefDto | null | undefined): boolean {
+  return !ref || !ref.resolved;
+}
+
+/**
+ * The registering brokerage as the search screens show it: its name, or, when
+ * no name could be obtained, the given failure sentence, for the caller's own
+ * brokerage and any other alike. Never an id.
+ */
+export function searchBrokerageName(
+  ref: BrokerageRefDto | null | undefined,
+  languageId: number,
+  failedText: string,
 ): string {
-  if (resolvedName) return resolvedName;
-  return own ? ownFallback : otherFallback;
+  const name = ref && !brokerageNameFailed(ref) ? companyName(ref.names, languageId) : '';
+  return name || failedText;
 }
 
 /** Whether the caller holds CustomerRisk.Case.Read itself, read from the claim like the search permission. */

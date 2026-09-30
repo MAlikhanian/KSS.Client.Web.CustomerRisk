@@ -6,12 +6,11 @@ import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
 import { viewCaseByNationalId } from '@/lib/customer-risk/api';
 import { crsErrorMessage, isCrsCode } from '@/lib/customer-risk/messages';
-import { companyName, languageIdFor } from '@/lib/customer-risk/format';
-import { holdsSearchPermission, isOwnBrokerage, searchBrokerageText } from '@/lib/customer-risk/search-access';
+import { languageIdFor } from '@/lib/customer-risk/format';
+import { holdsSearchPermission, searchBrokerageName } from '@/lib/customer-risk/search-access';
 import { searchedNationalIdInMemory } from '@/lib/customer-risk/search-memory';
 import { CaseView } from '../../cases/[id]/content';
-import type { MeDto } from '@/lib/customer-risk/types';
-import { CrsAccessGate, CrsNotice, useBrokerageLabel } from '../../components/crs-access';
+import { CrsAccessGate, CrsNotice } from '../../components/crs-access';
 import { CrsPage } from '../../components/crs-page';
 
 /**
@@ -38,15 +37,14 @@ export function CrossBrokerageDetailContent({ id }: { id: string }) {
         </Button>
       }
     >
-      <CrsAccessGate admit={holdsSearchPermission}>{(me) => <ReadOnlyCase id={id} me={me} />}</CrsAccessGate>
+      <CrsAccessGate admit={holdsSearchPermission}>{() => <ReadOnlyCase id={id} />}</CrsAccessGate>
     </CrsPage>
   );
 }
 
-function ReadOnlyCase({ id, me }: { id: string; me: MeDto }) {
+function ReadOnlyCase({ id }: { id: string }) {
   const { t, i18n } = useTranslation('customer-risk');
   const languageId = languageIdFor(i18n.language);
-  const brokerageLabel = useBrokerageLabel();
   const nationalId = searchedNationalIdInMemory();
 
   // The query key carries the case id only; the national id is passed in the
@@ -71,18 +69,11 @@ function ReadOnlyCase({ id, me }: { id: string; me: MeDto }) {
   if (isPending || !caseFile) {
     return <CrsNotice tone="info" title={t('loading', { defaultValue: 'Loading…' })} />;
   }
-  // The same wording as the search table: the name when the service could read
-  // it; otherwise the caller's own brokerage keeps its usual wording and any
-  // other brokerage is named neutrally, never by its id.
-  const ref = caseFile.brokerage;
+  // The same wording as the search table: the brokerage's name, or, when no
+  // name could be obtained, a sentence saying so. Never an id.
   const brokerageField = {
     label: t('registeringBrokerage', { defaultValue: 'Registering brokerage' }),
-    text: searchBrokerageText(
-      ref?.resolved ? companyName(ref.names, languageId) : '',
-      isOwnBrokerage(me.filingBrokerage?.id, ref?.id),
-      brokerageLabel(ref),
-      t('brokerageOther', { defaultValue: 'Another brokerage' }),
-    ),
+    text: searchBrokerageName(caseFile.brokerage, languageId, t('brokerageInfoLoadFailed', { defaultValue: 'Could not load the information. Please try again.' })),
   };
   return <CaseView caseFile={caseFile} canArchive={false} showBrokerage brokerageField={brokerageField} />;
 }

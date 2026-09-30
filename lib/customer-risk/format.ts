@@ -96,8 +96,13 @@ export function lookupName(names: readonly LookupNameDto[] | null | undefined, l
   return pickByLanguage(names, languageId)?.name?.trim() ?? '';
 }
 
+/**
+ * A company's name in the chosen language, or '' when it has none. An entry
+ * with no text is not a name, so it never wins over one that has text: an
+ * empty English entry falls through to the Persian name.
+ */
 export function companyName(names: readonly CompanyNameDto[] | null | undefined, languageId: number): string {
-  return pickByLanguage(names, languageId)?.name?.trim() ?? '';
+  return pickCompanyName(names, languageId)?.name ?? '';
 }
 
 /**
