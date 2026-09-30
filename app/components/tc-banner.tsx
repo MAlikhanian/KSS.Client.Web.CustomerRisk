@@ -52,24 +52,23 @@ function TcTerms() {
 }
 
 /**
- * The terms as an accordion. Collapsed, the clauses are clipped to about three
- * lines under a fade; the full text stays in the page either way, so nothing is
- * shortened, only hidden from view. Before acceptance it opens expanded, next to
- * the checkbox; after acceptance it opens collapsed.
+ * The terms as an accordion that always opens collapsed: the clauses are
+ * clipped to about three lines under a fade. The whole header row, title and
+ * arrow, is one button that opens and closes it; clicking the faded preview
+ * also opens it. The full text stays in the page either way, so nothing is
+ * shortened, only hidden from view. Before acceptance, the checkbox and the
+ * accept button sit under the card whether it is open or not.
  */
 export function TcBanner() {
   const { t, i18n } = useTranslation('customer-risk');
   const [accepted, setAccepted] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [expanded, setExpanded] = useState(true);
-  const titleId = useId();
+  const [expanded, setExpanded] = useState(false);
   const termsId = useId();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const wasAccepted = window.localStorage.getItem(ACCEPTED_KEY) === '1';
-    setAccepted(wasAccepted);
-    setExpanded(!wasAccepted);
+    setAccepted(window.localStorage.getItem(ACCEPTED_KEY) === '1');
   }, []);
 
   const accept = () => {
@@ -78,28 +77,28 @@ export function TcBanner() {
       window.localStorage.setItem(ACCEPTED_KEY, '1');
     }
     setAccepted(true);
-    setExpanded(false);
   };
 
   return (
     <Card>
       <CardContent className="py-5 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 id={titleId} className="flex-1 text-sm font-semibold text-center">
-            {t('tcTitle', { defaultValue: 'Terms & Regulations' })}
-          </h3>
-          <Button
+        <h3 className="text-sm font-semibold">
+          {/* The only control that opens and closes the terms, and the keyboard path;
+              its accessible name is the title it contains. */}
+          <button
             type="button"
-            variant="ghost"
-            size="sm"
-            aria-labelledby={titleId}
             aria-expanded={expanded}
             aria-controls={termsId}
             onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center gap-2 rounded-md p-1 cursor-pointer hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} aria-hidden="true" />
-          </Button>
-        </div>
+            <span className="flex-1 text-center">{t('tcTitle', { defaultValue: 'Terms & Regulations' })}</span>
+            <ChevronDown
+              className={cn('size-4 shrink-0 transition-transform', expanded && 'rotate-180')}
+              aria-hidden="true"
+            />
+          </button>
+        </h3>
         {/* The terms are in Persian only; the English page says so, in the owner's own words. */}
         {i18n.language === 'en' && (
           <p className="text-xs text-muted-foreground">
@@ -108,8 +107,13 @@ export function TcBanner() {
         )}
         <div id={termsId} className={cn('relative', !expanded && 'max-h-16 overflow-hidden')}>
           <TcTerms />
+          {/* Collapsed, the faded preview opens the terms on a mouse click. It is hidden from
+              assistive technology and takes no focus: the header button is the keyboard path,
+              and the clauses underneath stay readable. */}
           {!expanded && (
-            <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
+            <div aria-hidden="true" className="absolute inset-0 cursor-pointer" onClick={() => setExpanded(true)}>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
+            </div>
           )}
         </div>
         {!accepted && (
