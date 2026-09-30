@@ -17,6 +17,29 @@ export function holdsSearchPermission(me: { permissions: readonly string[] }): b
   return me.permissions.includes(CrsPermission.SearchRead);
 }
 
+/** Whether a search hit belongs to the caller's own brokerage: both ids known and equal. */
+export function isOwnBrokerage(
+  callerBrokerageId: string | null | undefined,
+  rowBrokerageId: string | null | undefined,
+): boolean {
+  return !!callerBrokerageId && !!rowBrokerageId && rowBrokerageId === callerBrokerageId;
+}
+
+/**
+ * The registering brokerage as the search screens show it: its name when the
+ * service could read one; otherwise the caller's own brokerage keeps its usual
+ * wording, and any other brokerage is named neutrally, never by its id.
+ */
+export function searchBrokerageText(
+  resolvedName: string,
+  own: boolean,
+  ownFallback: string,
+  otherFallback: string,
+): string {
+  if (resolvedName) return resolvedName;
+  return own ? ownFallback : otherFallback;
+}
+
 /** Whether the caller holds CustomerRisk.Case.Read itself, read from the claim like the search permission. */
 export function holdsCaseReadPermission(me: { permissions: readonly string[] }): boolean {
   return me.permissions.includes(CrsPermission.CaseRead);
@@ -39,5 +62,5 @@ export function opensCasePage(
 ): boolean {
   if (!holdsCaseRead) return false;
   if (allCompanyCaller) return true;
-  return !!callerBrokerageId && !!rowBrokerageId && rowBrokerageId === callerBrokerageId;
+  return isOwnBrokerage(callerBrokerageId, rowBrokerageId);
 }

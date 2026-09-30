@@ -124,12 +124,19 @@ export function CaseView({
   caseFile,
   canArchive,
   showBrokerage,
+  brokerageField,
 }: {
   caseFile: CaseDetailDto;
   /** Archive and unarchive only; this page modifies nothing else. */
   canArchive: boolean;
   /** Only for a caller whose access covers every company; anyone else sees their own brokerage's cases only. */
   showBrokerage: boolean;
+  /**
+   * The brokerage field's label and text, when a caller other than this page
+   * words them differently (the national-id search's read-only view). Omitted,
+   * the field keeps this page's own label and wording.
+   */
+  brokerageField?: { label: string; text: string };
 }) {
   const { t, i18n } = useTranslation('customer-risk');
   const brokerageLabel = useBrokerageLabel();
@@ -195,8 +202,8 @@ export function CaseView({
               <span className="font-mono">{caseFile.caseNumber}</span>
             </Field>
             {showBrokerage && (
-              <Field label={t('owningBrokerage', { defaultValue: 'Owning brokerage' })}>
-                {brokerageLabel(caseFile.brokerage)}
+              <Field label={brokerageField?.label ?? t('owningBrokerage', { defaultValue: 'Owning brokerage' })}>
+                {brokerageField ? brokerageField.text : brokerageLabel(caseFile.brokerage)}
               </Field>
             )}
             <Field label={t('filterStatus', { defaultValue: 'Status' })}>

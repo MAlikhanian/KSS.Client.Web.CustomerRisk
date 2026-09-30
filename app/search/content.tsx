@@ -26,7 +26,13 @@ import {
   PERSON_NATIONAL_ID_LENGTH,
   nationalIdKind,
 } from '@/lib/customer-risk/national-id';
-import { holdsCaseReadPermission, holdsSearchPermission, opensCasePage } from '@/lib/customer-risk/search-access';
+import {
+  holdsCaseReadPermission,
+  holdsSearchPermission,
+  isOwnBrokerage,
+  opensCasePage,
+  searchBrokerageText,
+} from '@/lib/customer-risk/search-access';
 import { forgetSearchedNationalId, rememberSearchedNationalId } from '@/lib/customer-risk/search-memory';
 import type { BrokerageRefDto, CaseSummaryDto, MeDto } from '@/lib/customer-risk/types';
 import { CaseStatusBadge } from '../components/case-status-badge';
@@ -134,11 +140,13 @@ function NationalIdSearch({ me }: { me: MeDto }) {
   };
   // Another brokerage whose name could not be read is named neutrally; the
   // caller's own keeps the list's usual wording.
-  const brokerageCell = (ref: BrokerageRefDto | undefined, own: boolean) => {
-    const name = ref?.resolved ? companyName(ref.names, languageId) : '';
-    if (name) return name;
-    return own ? brokerageLabel(ref) : t('brokerageOther', { defaultValue: 'Another brokerage' });
-  };
+  const brokerageCell = (ref: BrokerageRefDto | undefined, own: boolean) =>
+    searchBrokerageText(
+      ref?.resolved ? companyName(ref.names, languageId) : '',
+      own,
+      brokerageLabel(ref),
+      t('brokerageOther', { defaultValue: 'Another brokerage' }),
+    );
 
   return (
     <Card>
@@ -195,7 +203,7 @@ function NationalIdSearch({ me }: { me: MeDto }) {
             <TableHeader>
               <TableRow>
                 <TableHead>{t('caseNumber', { defaultValue: 'Case #' })}</TableHead>
-                <TableHead>{t('owningBrokerage', { defaultValue: 'Owning brokerage' })}</TableHead>
+                <TableHead>{t('registeringBrokerage', { defaultValue: 'Registering brokerage' })}</TableHead>
                 <TableHead>{t('customerName', { defaultValue: 'Customer' })}</TableHead>
                 <TableHead>{t('filterStatus', { defaultValue: 'Status' })}</TableHead>
                 <TableHead>{t('riskTypesColumn', { defaultValue: 'Risk types' })}</TableHead>
@@ -204,7 +212,7 @@ function NationalIdSearch({ me }: { me: MeDto }) {
             </TableHeader>
             <TableBody>
               {current.cases.map((c) => {
-                const own = !!ownBrokerageId && c.brokerage?.id === ownBrokerageId;
+                const own = isOwnBrokerage(ownBrokerageId, c.brokerage?.id);
                 // Every hit opens: the regular case page when the caller could
                 // open it anyway, otherwise the read-only view of this search.
                 const href = opensCasePage(caseRead, allCompany, ownBrokerageId, c.brokerage?.id)
