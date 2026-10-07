@@ -1,19 +1,18 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { ChevronDown } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { TermsAcceptance } from '@/components/common/terms-acceptance';
 import { useTranslation } from '@/hooks/useTranslation';
-import { cn } from '@/lib/utils';
 
-// Versioned: a change to the terms asks everyone to accept them again. An
-// earlier acceptance is left in storage and no longer read. Each signed-in
-// account has its own entry, keyed by its Auth user id, so a second person in
-// the same browser is asked for their own acceptance.
-const ACCEPTED_KEY_PREFIX = 'customer-risk:tc-accepted:v3';
+/** The application these terms belong to, as the terms service knows it. */
+const TERMS_APPLICATION_KEY = 'customerrisk';
+
+/**
+ * The version of the clauses below. Change it only together with the clause
+ * text, in the same release, and only then the service's configured version:
+ * a new version asks everyone to accept again, on every device. A wording or
+ * layout change elsewhere on the card is not a new version.
+ */
+const TERMS_VERSION = '2026-09-30';
 
 /**
  * The terms as numbered clauses, in the order of the source document. The
@@ -55,117 +54,35 @@ function TcTerms() {
 }
 
 /**
- * The terms as an accordion that always opens collapsed: the clauses are
- * clipped to about three lines under a fade. The whole header row, title and
- * arrow, is one button that opens and closes it; clicking the faded preview
- * also opens it. The full text stays in the page either way, so nothing is
- * shortened, only hidden from view. Before acceptance, the checkbox and the
- * accept button sit under the card whether it is open or not. After acceptance the
- * checkbox stays, ticked and locked, and a plain "accepted" label takes the
- * button's place.
+ * The terms card. Acceptance is recorded by the terms service against the
+ * signed-in person, so it holds on every browser and device; the shared card
+ * supplies the behaviour (no answer shown until the service has answered, a
+ * reason for every disabled state, a retry on failure). This system supplies
+ * the clauses, their version and its own wording for the labels. Labels it
+ * does not word use the shared card's neutral defaults.
  */
 export function TcBanner() {
   const { t, i18n } = useTranslation('customer-risk');
-  const { data: session, status } = useSession();
-  // No id, no key: until the signed-in account is known nothing is read or
-  // written, and the terms are shown as not yet accepted.
-  const userId = status === 'authenticated' ? session?.user?.id || null : null;
-  const acceptedKey = userId ? `${ACCEPTED_KEY_PREFIX}:${userId}` : null;
-  const [accepted, setAccepted] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const termsId = useId();
-  const hintId = useId();
-
-  useEffect(() => {
-    // A different account starts from its own state; no account means not accepted.
-    setChecked(false);
-    if (typeof window === 'undefined' || !acceptedKey) {
-      setAccepted(false);
-      return;
-    }
-    setAccepted(window.localStorage.getItem(acceptedKey) === '1');
-  }, [acceptedKey]);
-
-  const accept = () => {
-    if (!checked || !acceptedKey) return;
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(acceptedKey, '1');
-    }
-    setAccepted(true);
-  };
-
   return (
-    <Card>
-      <CardContent className="py-5 space-y-3">
-        <h3 className="text-sm font-semibold">
-          {/* The only control that opens and closes the terms, and the keyboard path;
-              its accessible name is the title it contains. */}
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-controls={termsId}
-            onClick={() => setExpanded((v) => !v)}
-            className="flex w-full items-center gap-2 rounded-md p-1 cursor-pointer hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span className="flex-1 text-center">{t('tcTitle', { defaultValue: 'Terms & Regulations' })}</span>
-            <ChevronDown
-              className={cn('size-4 shrink-0 transition-transform', expanded && 'rotate-180')}
-              aria-hidden="true"
-            />
-          </button>
-        </h3>
-        {/* The terms are in Persian only; the English page says so, in the owner's own words. */}
-        {i18n.language === 'en' && (
-          <p className="text-xs text-muted-foreground">
-            {t('tcPersianOnlyNote', { defaultValue: 'These terms are available in Persian only.' })}
-          </p>
-        )}
-        <div id={termsId} className={cn('relative', !expanded && 'max-h-16 overflow-hidden')}>
-          <TcTerms />
-          {/* Collapsed, the faded preview opens the terms on a mouse click. It is hidden from
-              assistive technology and takes no focus: the header button is the keyboard path,
-              and the clauses underneath stay readable. */}
-          {!expanded && (
-            <div aria-hidden="true" className="absolute inset-0 cursor-pointer" onClick={() => setExpanded(true)}>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
-            </div>
-          )}
-        </div>
-        <label className={cn('flex items-center gap-2 text-sm pt-2', !accepted && 'cursor-pointer')}>
-          {/* A stronger, larger outline than the kit default, whose border is too faint
-              against the card to read as a control in either theme. Once the terms are
-              accepted it stays ticked and can no longer be changed. */}
-          <Checkbox
-            size="lg"
-            className="border-2 border-primary"
-            checked={accepted || checked}
-            disabled={accepted}
-            onCheckedChange={(v) => setChecked(!!v)}
-          />
-          {t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' })}
-        </label>
-        <div className="flex items-center justify-end gap-3">
-          {accepted ? (
-            // Plain text, not a control: the acceptance is done and there is nothing left to press.
-            <p className="text-sm font-medium text-muted-foreground">
-              {t('tcAcceptedDone', { defaultValue: 'Accepted' })}
-            </p>
-          ) : (
-            <>
-              {/* Until the box is ticked the button is disabled, and this says what enables it. */}
-              {!checked && (
-                <p id={hintId} className="text-xs text-muted-foreground">
-                  {t('tcAcceptHint', { defaultValue: 'Select the option above first.' })}
-                </p>
-              )}
-              <Button disabled={!checked || !acceptedKey} onClick={accept} aria-describedby={checked ? undefined : hintId}>
-                {t('tcAcceptButton', { defaultValue: 'Accept' })}
-              </Button>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <TermsAcceptance
+      applicationKey={TERMS_APPLICATION_KEY}
+      version={TERMS_VERSION}
+      labels={{
+        title: t('tcTitle', { defaultValue: 'Terms & Regulations' }),
+        checkbox: t('tcAccepted', { defaultValue: 'I have read and accept the terms and regulations.' }),
+        accept: t('tcAcceptButton', { defaultValue: 'Accept' }),
+        hint: t('tcAcceptHint', { defaultValue: 'Select the option above first.' }),
+        accepted: t('tcAcceptedDone', { defaultValue: 'Accepted' }),
+      }}
+    >
+      {/* The terms are in Persian only; the English page says so, in the owner's own
+          words, above the clauses so that it shows in the collapsed preview. */}
+      {i18n.language === 'en' && (
+        <p className="text-xs text-muted-foreground mb-2">
+          {t('tcPersianOnlyNote', { defaultValue: 'These terms are available in Persian only.' })}
+        </p>
+      )}
+      <TcTerms />
+    </TermsAcceptance>
   );
 }

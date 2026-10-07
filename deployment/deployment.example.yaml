@@ -46,6 +46,9 @@
 #  screen while the probes stay green (they call nothing):
 #    - CUSTOMER_RISK_API_BASE_URL and its ConfigMap key;
 #    - the DNS and CRS-service egress rules in the NetworkPolicy at the bottom.
+#  The terms card's route (app/api/terms-acceptance) calls KSS.Service.Common the
+#  same way and needs the same three things: COMMON_API_BASE_URL, its ConfigMap key
+#  and egress rule 4.
 #
 #  ---------------------------------------------------------------------------
 #  THREE THINGS ARE NOT IN THIS FILE, in order of how quietly each one fails:
@@ -204,6 +207,13 @@ spec:
             configMapKeyRef:
               name: kss-client-web-customer-risk-config
               key: customer-risk-api-base-url
+        # The Common service, read by services/terms-acceptance-api.ts for the terms
+        # card. Not `optional`, for the same reason as the CRS service URL above.
+        - name: COMMON_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: kss-client-web-customer-risk-config
+              key: common-api-base-url
 
         # ── Object storage ──────────────────────────────────────────────────
         # Referenced by shared lib code copied in from _Kit. Marked optional so
@@ -296,6 +306,7 @@ metadata:
 data:
   auth-api-base-url: "https://auth.api.sebaoffice.ir"
   customer-risk-api-base-url: "http://kss-seba-erp-customer-risk-service-service.kss-seba-erp-customer-risk-service.svc.cluster.local"
+  common-api-base-url: "http://kss-common-service-service.kss-common-service.svc.cluster.local"
   tenants: '{"erp.seba.ir":{"name":"SEBA","logo":"/media/app/default-logo.svg","logoDark":"/media/app/default-logo-dark.svg","logoMini":"/media/app/mini-logo.svg","favicon":"/favicon.ico","banner":"/media/images/2600x1600/1.png","bannerDark":"/media/images/2600x1600/1-dark.png","companyId":"019f317a-12ba-764f-b19b-e064e36b4be8","footer":{"brand":{"label":"SEBA","href":"https://seba.ir"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"Support","fa":"پشتیبانی","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"License","fa":"مجوز","href":""}]}},"members.sebaoffice.ir":{"name":"SEBA","logo":"/media/app/default-logo.svg","logoDark":"/media/app/default-logo-dark.svg","logoMini":"/media/app/mini-logo.svg","favicon":"/favicon.ico","banner":"/media/images/2600x1600/1.png","bannerDark":"/media/images/2600x1600/1-dark.png","companyId":"019f317a-12ba-764f-b19b-e064e36b4be8","footer":{"brand":{"label":"SEBA","href":"https://seba.ir"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"Support","fa":"پشتیبانی","href":"https://www.seba.ir/%D8%AA%D9%85%D8%A7%D8%B3-%D8%A8%D8%A7-%DA%A9%D8%A7%D9%86%D9%88%D9%86"},{"en":"License","fa":"مجوز","href":""}]}},"nerp.sajoffice.ir":{"name":"SAJ","logo":"/media/tenants/saj/logo.png","logoDark":"/media/tenants/saj/logo.png","logoMini":"/media/tenants/saj/logo.png","favicon":"/media/tenants/saj/favicon.png","banner":"/media/tenants/saj/banner.jpg","bannerDark":"/media/tenants/saj/banner.jpg","companyId":"019f0e6c-9fbc-78cf-9202-fa932a9878f7","footer":{"brand":{"label":"SAJ","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"erp.mpfoffice.ir":{"name":"MPF","logo":"/media/tenants/mpf/logo.svg","logoDark":"/media/tenants/mpf/logo-dark.svg","logoMini":"/media/tenants/mpf/logo-mini.svg","favicon":"/media/tenants/mpf/favicon.svg","banner":"/media/tenants/mpf/banner.svg","bannerDark":"/media/tenants/mpf/banner-dark.svg","companyId":"019f7a3e-1d43-7bcb-a7f3-eb97572e2e02","footer":{"brand":{"label":"MPF","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"spmoffice.ir":{"name":"SPM","logo":"/media/tenants/spm/logo.svg","logoDark":"/media/tenants/spm/logo-dark.svg","logoMini":"/media/tenants/spm/logo-mini.svg","favicon":"/media/tenants/spm/favicon.svg","banner":"/media/tenants/spm/banner.svg","bannerDark":"/media/tenants/spm/banner-dark.svg","companyId":"01a04744-68ae-7aef-b9d0-b5fb31d7a80c","footer":{"brand":{"label":"SPM","href":""},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]}},"mkoffice.ir":{"name":"MK","footer":{"brand":{"label":"مشیران کاریز","href":"https://moshirankariz.com"},"links":[{"en":"Docs","fa":"مستندات","href":""},{"en":"Purchase","fa":"خرید","href":""},{"en":"FAQ","fa":"سوالات متداول","href":""},{"en":"Support","fa":"پشتیبانی","href":""},{"en":"License","fa":"مجوز","href":""}]},"logo":"/media/tenants/mk/logo.png","logoDark":"/media/tenants/mk/logo.png","logoMini":"/media/tenants/mk/logo.png","favicon":"/media/tenants/mk/favicon.ico","banner":"/media/tenants/mk/banner.jpg","bannerDark":"/media/tenants/mk/banner.jpg","companyId":"01a07fb0-e2e7-7822-b14b-3a70278009ef"}}'
 ---
 # ⚠ `nextauth-secret` IS NOT IN THIS FILE, AND MUST NOT BE ADDED TO IT.
@@ -358,7 +369,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
-  # Egress is a whitelist: anything not matched by one of the three rules below is
+  # Egress is a whitelist: anything not matched by one of the four rules below is
   # dropped, INCLUDING name resolution. Each rule is load-bearing.
   egress:
   # 1. Web ports anywhere: AUTH_API_BASE_URL is a public hostname.
@@ -389,5 +400,13 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kss-seba-erp-customer-risk-service
+    ports:
+    - { protocol: TCP, port: 8000 }
+  # 4. KSS.Service.Common (terms acceptance), by namespace. The port is the service POD's
+  #    port (8000), not the Service's port 80, for the same reason as rule 3.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kss-common-service
     ports:
     - { protocol: TCP, port: 8000 }

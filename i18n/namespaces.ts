@@ -44,6 +44,8 @@ import faPersonSidebar from '@/i18n/person-sidebar/fa.json';
 import enPersonSidebar from '@/i18n/person-sidebar/en.json';
 import faPersonStatus from '@/i18n/person-status/fa.json';
 import enPersonStatus from '@/i18n/person-status/en.json';
+import faTermsAcceptance from '@/i18n/terms-acceptance/fa.json';
+import enTermsAcceptance from '@/i18n/terms-acceptance/en.json';
 
 export const DOMAIN_NAMESPACES = {
   fa: {
@@ -67,6 +69,7 @@ export const DOMAIN_NAMESPACES = {
   'person-search': faPersonSearch,
   'person-sidebar': faPersonSidebar,
   'person-status': faPersonStatus,
+  'terms-acceptance': faTermsAcceptance,
   },
   en: {
   'brokerages-common': enBrokeragesCommon,
@@ -89,5 +92,6 @@ export const DOMAIN_NAMESPACES = {
   'person-search': enPersonSearch,
   'person-sidebar': enPersonSidebar,
   'person-status': enPersonStatus,
+  'terms-acceptance': enTermsAcceptance,
   },
 } as const;

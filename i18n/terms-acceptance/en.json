@@ -1,0 +1,16 @@
+{
+  "title": "Terms and conditions",
+  "checkbox": "I have read and accept the terms and conditions.",
+  "accept": "Accept",
+  "accepted": "Accepted",
+  "hint": "Select the option above first.",
+  "loading": "Checking your acceptance…",
+  "unidentified": "Your acceptance can't be recorded for this account. Please contact support.",
+  "unavailable": "Accepting these terms isn't available for this system yet.",
+  "loadFailed": "We couldn't check whether you have accepted these terms.",
+  "acceptFailed": "Your acceptance wasn't recorded. Please try again.",
+  "updated": "The terms have been updated. Please review and accept them again.",
+  "reload": "These terms have been updated. Reload the page to see the current version.",
+  "sessionTimeout": "We couldn't confirm your sign-in.",
+  "retry": "Try again"
+}
